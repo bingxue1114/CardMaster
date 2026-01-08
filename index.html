@@ -28,7 +28,7 @@
                 <p class="text-[10px] opacity-50 font-bold tracking-widest uppercase">2026 權益方案導航版</p>
             </div>
             <div class="bg-white/10 px-3 py-1 rounded-full border border-white/20 text-[10px] font-bold text-amber-200">
-                v1.0
+                v1.1
             </div>
         </div>
     </header>
@@ -59,7 +59,7 @@
                     <span class="text-[10px] font-black text-slate-400 uppercase">中信 UNI 任務：{{ uniCount }} 家</span>
                     <span class="text-[10px] font-bold text-orange-500 bg-orange-50 px-2 rounded">加碼中</span>
                 </div>
-                <input v-model.number="uniCount" type="range" min="1" max="5" step="1" class="w-full">
+                <input v-model.number="uniCount" type="range" min="0" max="5" step="1" class="w-full">
             </div>
         </div>
 
@@ -234,7 +234,9 @@ createApp({
             return mode === 'round' ? Math.round(raw) : Math.floor(raw);
         };
 
-        // --- 核心邏輯：台新 Richart 權益分支 ---
+        // --- 核心邏輯 ---
+		
+		//台新
         function getRichart(cat, shop) {
             const s = shop.toUpperCase();
             let base = { bank: '台新銀行', name: 'Richart 卡', pointType: '台新Point' };
@@ -302,20 +304,75 @@ createApp({
 
             return { ...base, rate: 0.3, plan: '一般消費', note: '基本回饋', planDesc: '未分類之一般通路。', dynamicScope: [{ title: '一般通路', shops: '非指定方案消費' }], limit: '0.3% 無上限' };
         }
-
+		
+		//中信UNI
         function getCTBC_UNI(cat, shop, count) {
-            const s = shop.toUpperCase();
-            const missionRate = count >= 2 ? (count - 1) : 0;
-            let base = { bank: '中國信託', name: 'Uni Sense 卡', pointType: 'OpenPoint' };
-            const uniScope = [{ title: '統一集團', shops: '7-11｜康是美｜夢時代｜統一時代｜家樂福｜博客來｜W飯店｜MIA C‘BON' }];
+			const s = shop.toUpperCase();
+			const missionRate = count >= 2 ? (count - 1) : 0;
+			let base = { bank: '中國信託', name: 'Uni Sense 卡', pointType: 'OpenPoint' };
 
-            if (cat === '海外消費') return { ...base, rate: 14, plan: '國外實體加碼', note: '含實體加碼11%', planDesc: '國外實體店面神卡。', dynamicScope: [{ title: '海外實體', shops: '日本、韓國等全球實體店鋪' }], limit: '加碼上限 500 點。' };
-            if (cat === '超商量販' || s.includes('7-11') || s.includes('家樂福')) 
-                return { ...base, rate: 4 + missionRate, plan: '統一集團通路', note: `含任務${missionRate}%`, planDesc: '統一集團生活圈最優。', dynamicScope: uniScope, limit: '各項加碼上限 500 點。' };
-            
-            return { ...base, rate: 1, plan: '一般消費', note: '一般消費', planDesc: '一般通路回饋。', dynamicScope: [{ title: '一般通路', shops: '國內一般消費' }], limit: '無上限。' };
-        }
+			const uniBrandKeywords = ['7-11', '康是美', '夢時代', '統一時代', '家樂福', '星巴克', '博客來', 'MIA C‘BON', '酷聖石', 'MISTER DONUT', '21風味館'];
+			
+			const uniScope = [{ 
+				title: '統一集團通路', 
+				shops: '7-11｜康是美｜家樂福｜星巴克｜夢時代｜統一時代｜博客來｜MIA C‘BON 等' 
+			}];
 
+			// 1. 海外實體 (最高 14%)
+			if (cat === '海外消費') {
+				return { 
+					...base, 
+					rate: 14, 
+					plan: '國外實體加碼', 
+					note: '基礎3%+加碼11%', 
+					planDesc: '國外實體店面神卡。', 
+					dynamicScope: [{ title: '海外實體', shops: '全球實體商店' }], 
+					limit: '加碼 11% 部分上限 500 點。' 
+				};
+			}
+
+			const isUniShop = uniBrandKeywords.some(keyword => s.includes(keyword));
+			const isIcashPay = s.includes('ICASH PAY');
+
+			// 2. 統一集團內消費 (假設預設使用 icash Pay 以極大化收益)
+			if (isUniShop) {
+				return { 
+					...base, 
+					rate: 7 + missionRate, 
+					plan: '統一集團+icash Pay', 
+					note: `基礎1%+集團2%+任務${missionRate}%+iPay 4%`, 
+					planDesc: '統一集團通路，建議務必使用 icash Pay 支付。', 
+					dynamicScope: uniScope, 
+					limit: 'iPay加碼上限150/月，其餘各項上限500/月' 
+				};
+			}
+			
+			// 3. 非統一集團，但使用 icash Pay
+			if (isIcashPay) {
+				return { 
+					...base, 
+					rate: 5, 
+					plan: '一般通路 icash Pay', 
+					note: `基礎1%+icash Pay 4%`, 
+					planDesc: '一般國內消費使用 icash Pay 支付。', 
+					dynamicScope: [{ title: '支付方式', shops: 'icash Pay 合作通路' }], 
+					limit: 'icash Pay 加碼上限 150 點/月' 
+				};
+			}
+
+			// 4. 一般消費 (無 icash Pay, 非集團)
+			return { 
+				...base, 
+				rate: 1, 
+				plan: '一般消費', 
+				note: '保底 1%', 
+				planDesc: '一般通路回饋。', 
+				dynamicScope: [{ title: '一般通路', shops: '全台一般消費' }], 
+				limit: '1% 無上限' 
+			};
+		}
+
+		//聯邦
         function getFed(cat, shop) {
             let base = { bank: '聯邦銀行', name: 'LINE Bank 卡', pointType: '現金回饋' };
             const highRateShops = ['NETFLIX','MOMO','PCHOME','蝦皮','酷澎'];
@@ -336,6 +393,7 @@ createApp({
             return { ...base, rate: 1, plan: '一般消費', note: '超商、麥當勞等小額支付無回饋。', planDesc: '一般通路回饋。', dynamicScope: [{ title: '一般通路', shops: '國內一般消費' }], limit: '無上限。' };
         }
 		
+		//國泰
 		function getCube(cat, shop) {
 			const s = shop.toUpperCase();
 			let base = { bank: '國泰世華', name: '青年簽帳卡', pointType: '現金回饋' };
@@ -394,6 +452,7 @@ createApp({
 			};
 		}
 		
+		//中信 line pay
 		function getLINEPay(cat, shop) {
 			const s = shop.toUpperCase();
 			let base = { bank: '中國信託', name: 'LINE Pay 卡', pointType: 'LINE Points回饋' };
