@@ -3,148 +3,251 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CardMaster 2026 - 權益導航動態版</title>
+    <title>CardMaster 2026 旗艦版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&family=JetBrains+Mono:wght@700&display=swap');
         body { font-family: 'Noto Sans TC', sans-serif; background-color: #f1f5f9; }
-        .best-card { transform: scale(1.02); border-color: #f59e0b; box-shadow: 0 15px 30px -10px rgba(245, 158, 11, 0.3); }
-        .list-move, .list-enter-active { transition: all 0.4s ease; }
-        .modal-enter-active, .modal-leave-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .modal-enter-from, .modal-leave-to { opacity: 0; transform: translateY(50px); }
-        input[type=range] { -webkit-appearance: none; background: #e2e8f0; border-radius: 99px; height: 8px; }
-        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 18px; width: 18px; border-radius: 50%; background: #f59e0b; cursor: pointer; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .best-card { transform: scale(1.02); border-color: #f59e0b; box-shadow: 0 20px 25px -5px rgba(245, 158, 11, 0.2); }
+        .sync-loading { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .modal-enter-active, .modal-leave-active { transition: all 0.3s ease; }
+        .modal-enter-from, .modal-leave-to { opacity: 0; transform: translateY(30px); }
     </style>
 </head>
-<body class="max-w-md mx-auto">
+<body class="max-w-md mx-auto shadow-2xl min-h-screen bg-slate-50">
 
 <div id="app" class="min-h-screen pb-24">
-    <header class="p-6 bg-slate-900 text-white rounded-b-[2.5rem] shadow-xl mb-6">
+    <header class="p-6 bg-slate-900 text-white rounded-b-[2.5rem] shadow-xl mb-6 sticky top-0 z-40">
         <div class="flex justify-between items-center">
             <div>
                 <h1 class="text-2xl font-black text-amber-400 tracking-tight">CardMaster</h1>
-                <p class="text-[10px] opacity-50 font-bold tracking-widest uppercase">2026 權益方案導航版</p>
+                <p class="text-[10px] opacity-50 font-bold tracking-widest uppercase">2026 完整權益同步版</p>
             </div>
-            <div class="bg-white/10 px-3 py-1 rounded-full border border-white/20 text-[10px] font-bold text-amber-200">
-                v1.1
+            <div class="flex gap-2">
+                <div @click="showSettings = true" class="cursor-pointer bg-white/10 p-2 rounded-full border border-white/20 text-amber-200"><i class="fas fa-cog"></i></div>
+                <div @click="syncFromCloud" class="cursor-pointer bg-white/10 px-3 py-1 rounded-full border border-white/20 text-[10px] font-bold text-amber-200 flex items-center">
+                    <i :class="['fas fa-sync-alt mr-1', isSyncing ? 'sync-loading' : '']"></i>
+                    {{ isSyncing ? '同步中' : '連線雲端' }}
+                </div>
             </div>
         </div>
     </header>
 
-    <div class="px-5 space-y-5">
+    <div v-if="toast.show" class="fixed top-10 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 rounded-2xl shadow-2xl font-black text-sm transition-all"
+        :class="toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'">
+        {{ toast.msg }}
+    </div>
+
+    <div class="px-5 space-y-6">
         <div class="space-y-3">
-            <div class="relative">
-                <div class="flex items-center bg-white rounded-3xl p-4 shadow-sm border-2 border-transparent focus-within:border-amber-400 transition-all">
-                    <i class="fas fa-search text-slate-300 mr-3"></i>
-                    <input v-model="shopInput" @input="showSuggestions = true" type="text" placeholder="在哪消費？如：7-11、Uber" class="w-full bg-transparent focus:outline-none text-slate-700 font-bold">
-                    <i v-if="shopInput" @click="clearSearch" class="fas fa-times-circle text-slate-300 cursor-pointer"></i>
+            <div class="relative bg-white rounded-3xl p-4 shadow-sm border-2 border-transparent focus-within:border-amber-400 transition-all">
+                <div class="flex items-center">
+                    <i class="fas fa-search text-slate-300 mr-2"></i>
+                    <input v-model="skInput" @focus="showSuggestions = true" type="text" placeholder="輸入店名或支付方式..." class="w-full bg-transparent focus:outline-none font-bold text-slate-700">
+                    <i v-if="skInput" @click="skInput = ''" class="fas fa-times-circle text-slate-300 cursor-pointer"></i>
                 </div>
-                <div v-if="suggestions.length > 0 && showSuggestions" class="absolute z-50 w-full bg-white border rounded-2xl mt-2 shadow-2xl overflow-hidden">
-                    <div v-for="s in suggestions" :key="s.name" @click="selectShop(s)" class="p-4 hover:bg-amber-50 cursor-pointer border-b last:border-0 flex justify-between items-center">
-                        <span class="font-bold text-slate-700">{{ s.name }}</span>
-                        <span class="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{{ s.category }}</span>
+                <div v-if="suggestions.length > 0 && showSuggestions" class="absolute left-0 top-full z-50 w-full bg-white border rounded-2xl mt-2 shadow-2xl overflow-hidden font-bold max-h-60 overflow-y-auto">
+                    <div v-for="s in suggestions" :key="s.name" @click="selectsk(s)" class="p-4 hover:bg-amber-50 cursor-pointer border-b last:border-0 flex justify-between items-center">
+                        <span class="text-slate-700">{{ s.name }}</span>
+                        <span class="text-[10px] bg-slate-100 px-2 py-1 rounded-full text-slate-400">{{ s.category }}</span>
                     </div>
                 </div>
             </div>
 
-            <div class="flex items-center bg-white rounded-3xl p-4 shadow-sm border-2 border-transparent focus-within:border-amber-400">
-                <span class="text-amber-500 font-black mr-3 text-xl">$</span>
-                <input v-model.number="amount" type="number" class="w-full bg-transparent focus:outline-none font-mono text-xl font-bold">
-            </div>
-
-            <div class="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
-                <div class="flex justify-between items-center mb-2">
-                    <span class="text-[10px] font-black text-slate-400 uppercase">中信 UNI 任務：{{ uniCount }} 家</span>
-                    <span class="text-[10px] font-bold text-orange-500 bg-orange-50 px-2 rounded">加碼中</span>
+            <div class="flex gap-2">
+                <div class="flex-1 bg-white rounded-3xl p-4 shadow-sm flex items-center">
+                    <span class="text-amber-500 font-black mr-2 text-xl">$</span>
+                    <input v-model.number="amount" type="number" class="w-full bg-transparent focus:outline-none font-mono text-xl font-bold">
                 </div>
-                <input v-model.number="uniCount" type="range" min="0" max="5" step="1" class="w-full">
+                <div class="bg-white px-4 rounded-3xl shadow-sm flex flex-col justify-center min-w-[100px]">
+                    <p class="text-[9px] font-black text-slate-400 uppercase">UNI 任務</p>
+                    <div class="flex items-center gap-2">
+                        <input v-model.number="uniCount" type="range" min="1" max="5" class="w-16 h-1.5 accent-orange-500">
+                        <span class="font-mono font-bold text-orange-600 text-sm">{{ uniCount }}</span>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div class="space-y-4">
+        <div class="space-y-5">
             <h2 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">智能推薦排行</h2>
-            <transition-group name="list">
-                <div v-for="(res, index) in sortedResults" :key="res.id" 
-                    class="bg-white p-5 rounded-[2.5rem] border-2 transition-all duration-300 relative"
-                    :class="[index === 0 ? 'best-card border-amber-400' : 'border-transparent opacity-90 shadow-sm']">
-                    
-                    <div class="flex justify-between items-start">
-                        <div class="flex items-center">
-                            <div :class="['w-10 h-10 rounded-2xl flex items-center justify-center mr-3 text-white shadow-sm', res.iconColor]">
-                                <i :class="res.icon"></i>
-                            </div>
-                            <div>
-                                <p class="text-[9px] font-bold text-slate-400 uppercase">{{ res.bank }}</p>
-                                <h3 class="text-md font-black text-slate-800">{{ res.name }}</h3>
-                            </div>
+            <div v-for="(res, index) in sortedResults" :key="res.id" 
+                class="bg-white p-6 rounded-[2.5rem] border-2 relative transition-all duration-300 shadow-sm"
+                :class="[index === 0 ? 'best-card border-amber-400' : 'border-transparent opacity-95']">
+                
+                <div class="flex justify-between items-start mb-4">
+                    <div class="flex items-center">
+                        <div :class="['w-12 h-12 rounded-2xl flex items-center justify-center mr-3 text-white shadow-sm text-xl', res.iconColor]">
+                            <i :class="res.icon"></i>
                         </div>
-                        <div class="text-right flex flex-col items-end">
-                            <div class="text-2xl font-black tracking-tighter text-slate-800">{{ res.rate }}%</div>
-                            <button @click="openModal(res)" class="text-[10px] font-bold bg-slate-800 text-white px-3 py-1 rounded-full mt-1 active:scale-95 transition-transform">
-                                詳情 <i class="fas fa-chevron-right ml-0.5"></i>
-                            </button>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase leading-none mb-1">{{ res.bank }}</p>
+                            <h3 class="text-lg font-black text-slate-800">{{ res.name }}</h3>
                         </div>
                     </div>
-
-                    <div class="mt-4 pt-3 border-t border-slate-50 flex justify-between items-end">
-                        <div class="w-2/3">
-                            <div class="flex items-center space-x-1 mb-1">
-                                <span class="bg-slate-800 text-white text-[9px] px-2 py-0.5 rounded font-bold tracking-tighter uppercase">建議方案</span>
-                                <span class="text-blue-600 text-[11px] font-black">{{ res.plan }}</span>
-                            </div>
-                            <p class="text-[10px] text-slate-400 leading-relaxed font-medium">{{ res.note }}</p>
-                        </div>
-                        <div class="text-right">
-                            <span class="text-xl font-black text-slate-800">{{ calculateReward(amount, res.rate, res.rounding) }}</span>
-                            <span class="text-[10px] font-bold text-slate-400 ml-1">點</span>
+                    <div class="text-right">
+                        <div class="text-3xl font-black text-slate-800 tracking-tighter">{{ res.rate }}<span class="text-sm ml-0.5">%</span></div>
+                        <div class="flex gap-1 mt-1 justify-end">
+                            <button @click="openDetails(res)" class="text-[10px] font-bold bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full hover:bg-slate-200">詳情</button>
+                            <button @click="openUpdate(res)" class="text-[10px] font-bold bg-slate-900 text-amber-400 px-3 py-1.5 rounded-full">更新</button>
                         </div>
                     </div>
                 </div>
-            </transition-group>
+
+                <div class="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
+                    <div>
+                        <span class="text-blue-600 text-[11px] font-black block mb-0.5">{{ res.plan }}</span>
+                        <p class="text-[11px] text-slate-400 font-medium">{{ res.note }}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xl font-black text-slate-800 font-mono">{{ calculateReward(amount, res.rate, res.rounding) }}</span>
+                        <p class="text-[9px] font-bold text-slate-400 uppercase">{{ res.pointType }}</p>
+                    </div>
+                </div>
+
+				<div v-if="res.rateDetails && res.rateDetails.length > 0" class="mt-4 space-y-3">
+					<div v-for="(act, idx) in res.rateDetails" :key="idx" class="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+						<div class="flex justify-between items-end mb-1.5">
+							<div>
+								<p class="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+									{{ act.name }} 
+									<span class="ml-1 font-bold" :class="act.isFull ? 'text-red-500' : 'text-slate-600'">
+										{{ act.activeRate }}%
+									</span>
+								</p>
+								<p class="text-[10px] font-mono font-bold text-slate-700">
+									已刷 ${{ (getCardStorage(res.storeId).currentSpend || 0).toLocaleString() }}
+								</p>
+							</div>
+							<div class="text-right">
+								<p class="text-[9px] font-black text-slate-400 uppercase">剩餘額度</p>
+								<p class="text-[10px] font-mono font-bold" 
+								   :class="act.isFull ? 'text-red-500' : 'text-emerald-600'">
+									{{ act.limitAmt === Infinity ? '無上限' : '$' + (act.remaining || 0).toLocaleString() }}
+								</p>
+							</div>
+						</div>
+
+						<div v-if="act.limitAmt !== Infinity" class="relative w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+							<div class="absolute top-0 left-0 h-full transition-all duration-1000 ease-out" 
+								 :style="{ 
+									width: (act.progress || 0) + '%', 
+									backgroundColor: act.isFull ? '#ef4444' : ((act.progress || 0) > 80 ? '#f59e0b' : '#10b981') 
+								 }">
+							</div>
+						</div>
+
+						<div class="flex justify-between mt-1">
+							<span class="text-[8px] font-black text-slate-400">{{ Math.round(act.progress || 0) }}%</span>
+							<span class="text-[8px] font-black text-slate-400 italic">
+								上限 {{ act.limitAmt === Infinity ? '∞' : '$' + (act.limitAmt || 0).toLocaleString() }}
+							</span>
+						</div>
+					</div>
+				</div>
+
+				<div v-else-if="res.limitAmt && res.limitAmt !== Infinity" class="mt-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+					<div class="flex justify-between mb-1 text-[10px] font-bold">
+						<span class="text-slate-400">累積消費進度</span>
+						<span class="text-slate-700">${{ (getCardStorage(res.storeId).currentSpend || 0).toLocaleString() }} / ${{ res.limitAmt.toLocaleString() }}</span>
+					</div>
+					<div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+						<div class="h-full bg-emerald-500 transition-all duration-1000" 
+							 :style="{ width: Math.min(100, ((getCardStorage(res.storeId).currentSpend || 0) / res.limitAmt) * 100) + '%' }">
+						</div>
+					</div>
+				</div>
+
+				<div v-else-if="res && res.limitAmt" class="mt-4 bg-slate-50 p-4 rounded-3xl border border-slate-100">
+					</div>
+            </div>
         </div>
     </div>
 
     <transition name="modal">
-        <div v-if="activeCard" class="fixed inset-0 z-[100] flex items-end justify-center px-4 pb-10">
-            <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="activeCard = null"></div>
-            <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl relative z-10 border-t-8 border-amber-400 max-h-[85vh] overflow-y-auto">
-                <div class="flex justify-between items-start mb-6">
-                    <div>
-                        <h4 class="text-xs font-black text-amber-500 uppercase tracking-widest">{{ activeCard.bank }}</h4>
-                        <h3 class="text-2xl font-black text-slate-800">{{ activeCard.name }}</h3>
+        <div v-if="detailCard" class="fixed inset-0 z-[100] flex items-end justify-center px-4 pb-10">
+            <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" @click="detailCard = null"></div>
+            <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 relative z-10 border-t-8 border-amber-400 max-h-[80vh] overflow-y-auto">
+                <div class="flex items-center gap-3 mb-6">
+                    <div :class="['w-12 h-12 rounded-2xl flex items-center justify-center text-white text-xl shadow-lg', detailCard.iconColor]">
+                        <i :class="detailCard.icon"></i>
                     </div>
-                    <button @click="activeCard = null" class="bg-slate-100 text-slate-400 w-10 h-10 rounded-full flex items-center justify-center">
-                        <i class="fas fa-times"></i>
-                    </button>
+                    <div>
+                        <h3 class="text-2xl font-black text-slate-800">{{ detailCard.name }}</h3>
+                        <p class="text-xs font-bold text-blue-600">{{ detailCard.plan }}</p>
+                    </div>
                 </div>
-
+                
                 <div class="space-y-6">
-					<!---
-                    <div>
-                        <p class="text-[10px] font-black text-slate-400 uppercase mb-2">當前推薦方案說明</p>
-                        <p class="text-slate-700 font-bold text-md leading-relaxed bg-blue-50 p-4 rounded-2xl border border-blue-100 italic">
-                            {{ activeCard.planDesc }}
-                        </p>
+					<!--
+                    <div class="bg-slate-50 p-5 rounded-3xl border border-slate-100">
+                        <p class="text-[10px] font-black text-slate-400 uppercase mb-2">權益說明</p>
+                        <p class="text-sm font-bold text-slate-700 leading-relaxed">{{ detailCard.planDesc }}</p>
                     </div>
-					--->
+ 					-->
                     <div>
-                        <p class="text-[10px] font-black text-slate-400 uppercase mb-2">方案適用通路細節</p>
+                        <p class="text-[10px] font-black text-slate-400 uppercase mb-3 ml-1">適用通路詳細清單</p>
                         <div class="space-y-3">
-                            <div v-for="group in activeCard.dynamicScope" :key="group.title" class="border-l-4 border-amber-200 pl-3">
-                                <p class="text-[11px] font-black text-slate-800 uppercase">{{ group.title }}</p>
-                                <p class="text-[11px] text-slate-500 font-medium leading-relaxed">{{ group.shops }}</p>
-                            </div>
+                            <div v-for="group in detailCard.dynamicScope" :key="group.title" class="mb-4">
+								<p class="text-sm font-black text-slate-800">{{ group.title }}</p>
+								<p class="text-xs text-slate-500 mt-1">{{ group.shops }}</p>
+							</div>
                         </div>
                     </div>
 
-                    <div class="bg-amber-50 p-4 rounded-3xl border border-amber-100">
-                        <p class="text-[10px] font-black text-amber-600 uppercase mb-1">回饋上限與規則</p>
-                        <p class="text-sm font-bold text-amber-900 leading-tight">{{ activeCard.limit }}</p>
+                    <div class="bg-amber-50 p-5 rounded-3xl border border-amber-100">
+                        <p class="text-[10px] font-black text-amber-600 uppercase mb-1">額度與回饋類型</p>
+                        <p class="text-sm font-bold text-amber-900 leading-tight">{{ detailCard.limit }}</p>
+                        <p class="text-[10px] text-amber-700 mt-2 font-bold">點數性質：{{ detailCard.pointType }}</p>
                     </div>
+                </div>
+            </div>
+        </div>
+    </transition>
 
-                    <p class="text-[10px] text-slate-400 italic text-center pt-2">* 回饋類型：{{ activeCard.pointType }}</p>
+    <transition name="modal">
+        <div v-if="updateCard" class="fixed inset-0 z-[100] flex items-end justify-center px-4 pb-10">
+            <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="updateCard = null"></div>
+            <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl relative z-10 border-t-8 border-amber-400">
+                <h3 class="text-2xl font-black text-slate-800 mb-2 text-center">累加消費金額</h3>
+                <p class="text-center text-xs font-bold text-slate-400 mb-6">{{ updateCard.name }} ({{ updateCard.plan }})</p>
+                
+                <div class="bg-slate-50 rounded-3xl p-6 mb-6">
+                    <p class="text-center text-[10px] font-black text-slate-400 uppercase mb-2">輸入本次消費金額</p>
+                    <input v-model.number="tempAmount" type="number" class="w-full bg-transparent font-mono font-bold text-4xl text-center outline-none focus:text-amber-500 transition">
+                </div>
+
+                <button @click="confirmUpdate" :disabled="isSyncing" class="w-full bg-slate-900 text-amber-400 py-5 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 active:scale-95 transition">
+                    <i v-if="isSyncing" class="fas fa-spinner sync-loading"></i>
+                    {{ isSyncing ? '同步至雲端...' : '確認累加金額' }}
+                </button>
+                <button @click="resetCard" :disabled="isSyncing" class="w-full text-red-400 text-[11px] font-black underline mt-6 opacity-50 hover:opacity-100 transition">本月消費強制歸零</button>
+            </div>
+        </div>
+    </transition>
+
+    <transition name="modal">
+        <div v-if="showSettings" class="fixed inset-0 z-[100] flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-slate-900/80 backdrop-blur-md" @click="showSettings = false"></div>
+            <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl relative z-10 border-t-8 border-amber-400">
+                <h3 class="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><i class="fas fa-database text-amber-500"></i> 雲端同步設定</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">GAS WebApp URL</label>
+                        <input v-model="config.gasUrl" type="text" class="w-full mt-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs outline-none focus:border-amber-400" placeholder="https://script.google.com/...">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Google Sheet ID</label>
+                        <input v-model="config.sheetId" type="text" class="w-full mt-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs outline-none focus:border-amber-400" placeholder="試算表長的 ID 字串">
+                    </div>
+                    <div class="bg-amber-50 p-4 rounded-2xl text-[10px] text-amber-700 font-bold leading-relaxed">
+                        <i class="fas fa-info-circle mr-1"></i> 設定後，刷卡金額將自動儲存於您的 Google 試算表，達成多裝置同步效果。
+                    </div>
+                    <button @click="saveSettings" class="w-full bg-slate-900 text-amber-400 py-4 rounded-2xl font-black mt-4 active:scale-95 transition">儲存並立即連線</button>
                 </div>
             </div>
         </div>
@@ -152,19 +255,30 @@
 </div>
 
 <script>
-const { createApp, ref, computed } = Vue;
+const { createApp, ref, computed, onMounted, watch } = Vue;
 
 createApp({
     setup() {
-        const shopInput = ref('');
-        const amount = ref(1000);
+        // --- 設定與狀態 ---
+        const config = ref({ 
+            gasUrl: localStorage.getItem('cm_gasUrl') || '', 
+            sheetId: localStorage.getItem('cm_sheetId') || '' 
+        });
+        const storageData = ref(JSON.parse(localStorage.getItem('cardMaster_v1.3')) || {});
+        const skInput = ref(''); 
+        const amount = ref(1000); 
         const uniCount = ref(5);
+        const isSyncing = ref(false); 
+        const showSettings = ref(false); 
         const showSuggestions = ref(false);
-        const activeCard = ref(null);
+        const toast = ref({ show: false, msg: '', type: 'success' });
+        const detailCard = ref(null); 
+        const updateCard = ref(null); 
+        const tempAmount = ref(0);
 
+        // --- 商店資料庫 ---
         const shopDatabase = [
-            // 台新
-			{ name: '台新Pay', category: '支付方式' },{ name: '台灣Pay', category: '支付方式' },{ name: '台新Pay+', category: '支付方式' },
+            { name: '台新Pay', category: '支付方式' },{ name: '台灣Pay', category: '支付方式' },{ name: '台新Pay+', category: '支付方式' },
 			{ name: 'LINE Pay', category: '支付方式' },{ name: '7-11', category: '超商量販' },{ name: '全家', category: '超商量販' },
 			{ name: '家樂福', category: '超商量販' },{ name: '大買家', category: '超商量販' },{ name: '唐吉軻德', category: '超商量販' },
 			{ name: 'LOPIA', category: '超商量販' },{ name: '台鐵', category: '通勤交通' },{ name: '高鐵', category: '通勤交通' },
@@ -201,7 +315,7 @@ createApp({
 			{ name: 'Amazing Talker', category: '線上課程' },{ name: 'Tutor ABC', category: '線上課程' },{ name: 'Hahow', category: '線上課程' },
 			{ name: 'PressPlay', category: '線上課程' },{ name: 'MyCard', category: '遊戲影音' },{ name: '遊戲橘子', category: '遊戲影音' },
 			{ name: 'Steam', category: '遊戲影音' },{ name: 'PlayStation', category: '遊戲影音' },{ name: 'Nintendo', category: '遊戲影音' },
-			{ name: 'Netfilx', category: '遊戲影音' },{ name: 'Disney+', category: '遊戲影音' },{ name: 'ChatGPT', category: 'AI服務' },
+			{ name: 'Netflix', category: '遊戲影音' },{ name: 'Disney+', category: '遊戲影音' },{ name: 'ChatGPT', category: 'AI服務' },
 			{ name: 'Notion', category: 'AI服務' },{ name: 'Canva', category: 'AI服務' },{ name: 'Perplexity', category: 'AI服務' },
 			{ name: 'Claude', category: 'AI服務' },{ name: '中華航空', category: '航空公司' },{ name: '長榮航空', category: '航空公司' },
 			{ name: '星宇航空', category: '航空公司' },{ name: '台灣虎航', category: '航空公司' },{ name: '國泰航空', category: '航空公司' },
@@ -221,304 +335,430 @@ createApp({
 			{ name: '海外', category: '海外消費' }
         ];
 
-        // --- 新增：動態從資料庫抓取同類別商家的函數 ---
-        const getShopsByCategory = (categoryName) => {
-            return shopDatabase
-                .filter(item => item.category === categoryName)
-                .map(item => item.name)
-                .join('｜');
-        };
-
-        const calculateReward = (amt, rate, mode) => {
-            const raw = amt * (rate / 100);
-            return mode === 'round' ? Math.round(raw) : Math.floor(raw);
-        };
-
-        // --- 核心邏輯 ---
+        const getShopsByCategory = (cat) => shopDatabase.filter(d => d.category === cat).map(d => d.name).join('｜');
+		// 傳入 rates 陣列與目前已刷金額，回傳剩餘可得的總趴數
+		const getEffectiveRate = (rates, currentSpent) => {
+			let totalRate = 0;
+			rates.forEach(r => {
+				// 如果該項沒有金額限制，或目前刷卡額還沒超過上限，就加上該項趴數
+				if (!r.limitAmt || currentSpent < r.limitAmt) {
+					totalRate += r.rate;
+				}
+			});
+			return totalRate;
+		};
+		
+		const getCardStorage = (id) => {
+			if (!id) return { currentSpend: 0 };
+			// 如果 storageData[id] 不存在，就回傳一個預設物件
+			if (!storageData.value[id]) {
+				return { currentSpend: 0 };
+			}
+			return storageData.value[id];
+		};
+        // --- 核心卡片邏輯 ---
 		
 		//台新
-        function getRichart(cat, shop) {
-            const s = shop.toUpperCase();
-            let base = { bank: '台新銀行', name: 'Richart 卡', pointType: '台新Point' };
-            
-            // 【天天刷】方案：不再手寫，改從 Database 抓
-            const dailyScope = [
-                { title: '超商量販', shops: getShopsByCategory('超商量販') },
-                { title: '通勤交通', shops: getShopsByCategory('通勤交通') },
-                { title: '加油充電', shops: getShopsByCategory('加油充電') },
-                { title: '藥妝藥局', shops: getShopsByCategory('藥妝藥局') }
-            ];
+		const getRichart = (cat, shop) => {
+			const s = shop.toUpperCase();
+			let base = { bank: '台新銀行', name: 'Richart', pointType: '台新Point', storeId: 'richart' };
+			
+			// 定義各方案包含的分類大標
+			const groups = {
+				daily: ['超商量販', '通勤交通', '加油充電', '藥妝藥局'],
+				eat: ['全臺餐飲', '外送平台', '購票娛樂', '指定KTV', '指定飯店'],
+				big: ['指定百貨', '指定Outlet', '居家裝修', '時尚品味'],
+				digital: ['網購平台', '遊戲影音', 'AI服務', '線上課程'],
+				travel: ['海外消費', '航空公司', '訂房平台', '旅行社']
+			};
 
-            // 【好饗刷】方案
-            const eatScope = [
-                { title: '全臺餐飲', shops: getShopsByCategory('全臺餐飲') },
-                { title: '外送平台', shops: getShopsByCategory('外送平台') },
-                { title: '購票娛樂', shops: getShopsByCategory('購票娛樂') },
-                { title: '指定KTV', shops: getShopsByCategory('指定KTV') },
-                { title: '指定飯店', shops: getShopsByCategory('指定飯店') }
-            ];
+			// 輔助工具：動態生成該方案的詳情清單
+			const generateScope = (categoryList) => {
+				return categoryList.map(c => {
+					let shops = getShopsByCategory(c);
+					// 針對超商類別加入你的特殊註解
+					if (c === '超商量販') {
+						shops = shops.replace('7-11｜全家', '7-11及全家(兩大超商限台新Pay)');
+					}
+					return { title: c, shops: shops };
+				});
+			};
 
-            // 【大筆刷】方案
-            const bigScope = [
-                { title: '指定百貨', shops: getShopsByCategory('指定百貨') },
-                { title: '指定Outlet', shops: getShopsByCategory('指定Outlet') },
-                { title: '居家裝修', shops: getShopsByCategory('居家裝修') },
-                { title: '時尚品味', shops: getShopsByCategory('時尚品味') }
-            ];
+			// 1. 指定支付判斷
+			if (s.includes('台新PAY')) return { ...base, rate: 3.8, plan: '【Pay著刷】', note: '限 台新Pay 支付', planDesc: '綁定台新 Pay 支付享 3.8% 高回饋。', dynamicScope: [{title:'指定支付', shops:'台新 Pay'}], limit: '無上限' };
+			if (s.includes('LINE PAY')) return { ...base, rate: 2.3, plan: '【Pay著刷】', note: '限 LINE Pay 支付', planDesc: '綁定 LINE Pay 支付享 2.3% 回饋。', dynamicScope: [{title:'指定支付', shops:'LINE Pay'}], limit: '無上限' };
+			
+			// 2. 五大權益方案動態切換
+			if (groups.daily.includes(cat)) return { ...base, rate: 3.3, plan: '【天天刷】', note: '需切換權益', planDesc: '日常生活的全方位通路。', dynamicScope: generateScope(groups.daily), limit: '無上限' };
+			if (groups.eat.includes(cat)) return { ...base, rate: 3.3, plan: '【好饗刷】', note: '需切換權益', planDesc: '美食與娛樂首選。', dynamicScope: generateScope(groups.eat), limit: '無上限' };
+			if (groups.big.includes(cat)) return { ...base, rate: 3.3, plan: '【大筆刷】', note: '需切換權益', planDesc: '大額支出必備。', dynamicScope: generateScope(groups.big), limit: '無上限' };
+			if (groups.digital.includes(cat)) return { ...base, rate: 3.3, plan: '【數趣刷】', note: '需切換權益', planDesc: '數位訂閱與網購。', dynamicScope: generateScope(groups.digital), limit: '無上限' };
+			if (groups.travel.includes(cat)) return { ...base, rate: 3.3, plan: '【玩旅刷】', note: '需切換權益', planDesc: '旅遊、機票與海外。', dynamicScope: generateScope(groups.travel), limit: '無上限' };
 
-            // 【數趣刷】方案 (新增對應你 database 的分類)
-            const digitalScope = [
-                { title: '網購平台', shops: getShopsByCategory('網購平台') },
-                { title: '遊戲影音', shops: getShopsByCategory('遊戲影音') },
-                { title: 'AI服務', shops: getShopsByCategory('AI服務') },
-                { title: '線上課程', shops: getShopsByCategory('線上課程') }
-            ];
-
-            // 【玩旅刷】方案
-            const travelScope = [
-				{ title: '海外消費', shops: getShopsByCategory('海外消費') },
-                { title: '航空公司', shops: getShopsByCategory('航空公司') },
-                { title: '訂房平台', shops: getShopsByCategory('訂房平台') },
-                { title: '旅行社', shops: getShopsByCategory('旅行社') },
-                { title: '海外交通/網路', shops: getShopsByCategory('海外交通/網路') }
-            ];
-
-            // 判斷邏輯
-            if (s.includes('LINE PAY')) return { ...base, rate: 2.3, plan: '【Pay著刷】', note: '限 LINE PAY 支付', planDesc: '綁定 LINE Pay 支付回饋2.3%。', dynamicScope: [{ title: '指定支付', shops: 'LINE Pay' }], limit: '無上限' };
-            if (s.includes('台新PAY')) return { ...base, rate: 3.8, plan: '【Pay著刷】', note: '限 台新Pay 支付', planDesc: '綁定台新 Pay 支付回饋3.8%。', dynamicScope: [{ title: '指定支付', shops: '台新 Pay' }], limit: '無上限' };
-            
-            if (['超商量販','通勤交通','加油充電','藥妝藥局'].includes(cat)) 
-                return { ...base, rate: 3.3, plan: '【天天刷】', note: '需切換權益', planDesc: '日常生活的全方位通路。', dynamicScope: dailyScope, limit: '無上限' };
-            
-            if (['全臺餐飲','外送平台','購票娛樂','指定KTV','指定飯店'].includes(cat)) 
-                return { ...base, rate: 3.3, plan: '【好饗刷】', note: '需切換權益', planDesc: '美食與娛樂首選。', dynamicScope: eatScope, limit: '無上限' };
-
-            if (['指定百貨','指定Outlet','居家裝修','時尚品味'].includes(cat)) 
-                return { ...base, rate: 3.3, plan: '【大筆刷】', note: '需切換權益', planDesc: '百貨購物大額支出。', dynamicScope: bigScope, limit: '無上限' };
-
-            if (['網購平台','遊戲影音','AI服務','線上課程'].includes(cat)) 
-                return { ...base, rate: 3.3, plan: '【數趣刷】', note: '需切換權益', planDesc: '線上購物與數位訂閱。', dynamicScope: digitalScope, limit: '無上限' };
-
-            if (['海外消費','航空公司','訂房平台','旅行社','海外交通/網路'].includes(cat)) 
-                return { ...base, rate: 3.3, plan: '【玩旅刷】', note: '需切換權益', planDesc: '旅遊、機票與海外消費。', dynamicScope: travelScope, limit: '無上限' };
-
-            return { ...base, rate: 0.3, plan: '一般消費', note: '基本回饋', planDesc: '未分類之一般通路。', dynamicScope: [{ title: '一般通路', shops: '非指定方案消費' }], limit: '0.3% 無上限' };
-        }
+			// 3. 基本回饋
+			return { ...base, rate: 0.3, plan: '一般消費', note: '基本回饋', planDesc: '未分類之一般通路。', dynamicScope: [{title:'一般通路', shops:'非指定方案消費'}], limit: '無上限' };
+		};
 		
 		//中信UNI
-        function getCTBC_UNI(cat, shop, count) {
+		const getCTBC_UNI = (cat, shop, count, spent = 0) => {
 			const s = shop.toUpperCase();
+			const currentSpent = Number(spent) || 0;
 			const missionRate = count >= 2 ? (count - 1) : 0;
-			let base = { bank: '中國信託', name: 'Uni Sense 卡', pointType: 'OpenPoint' };
-
-			const uniBrandKeywords = ['7-11', '康是美', '夢時代', '統一時代', '家樂福', '星巴克', '博客來', 'MIA C‘BON', '酷聖石', 'MISTER DONUT', '21風味館'];
 			
-			const uniScope = [{ 
-				title: '統一集團通路', 
-				shops: '7-11｜康是美｜家樂福｜星巴克｜夢時代｜統一時代｜博客來｜MIA C‘BON 等' 
-			}];
+			let base = { bank: '中國信託', name: 'Uni Sense 卡', pointType: 'OpenPoint', storeId: 'ctbc_uni' };
 
-			// 1. 海外實體 (最高 14%)
-			if (cat === '海外消費') {
-				return { 
-					...base, 
-					rate: 14, 
-					plan: '國外實體加碼', 
-					note: '基礎3%+加碼11%', 
-					planDesc: '國外實體店面神卡。', 
-					dynamicScope: [{ title: '海外實體', shops: '全球實體商店' }], 
-					limit: '加碼 11% 部分上限 500 點。' 
-				};
-			}
+			const processDetails = (details) => {
+				return details.map(item => {
+					// 上限取整數 (Math.floor)
+					const rawLimit = (item.pointLimit && item.rate > 0) ? (item.pointLimit / (item.rate / 100)) : Infinity;
+					const calculatedLimit = rawLimit === Infinity ? Infinity : Math.floor(rawLimit);
 
-			const isUniShop = uniBrandKeywords.some(keyword => s.includes(keyword));
-			const isIcashPay = s.includes('ICASH PAY');
+					const isFull = calculatedLimit !== Infinity && currentSpent >= calculatedLimit;
+					
+					return {
+						...item,
+						limitAmt: calculatedLimit,
+						activeRate: isFull ? 0 : item.rate,
+						remaining: calculatedLimit === Infinity ? Infinity : Math.max(0, calculatedLimit - currentSpent),
+						progress: calculatedLimit === Infinity ? 0 : Math.min(100, (currentSpent / calculatedLimit) * 100),
+						isFull: isFull
+					};
+				});
+			};
 
-			// 2. 統一集團內消費 (假設預設使用 icash Pay 以極大化收益)
-			if (isUniShop) {
-				return { 
-					...base, 
-					rate: 7 + missionRate, 
-					plan: '統一集團+icash Pay', 
-					note: `基礎1%+集團2%+任務${missionRate}%+iPay 4%`, 
-					planDesc: '統一集團通路，建議務必使用 icash Pay 支付。', 
-					dynamicScope: uniScope, 
-					limit: 'iPay加碼上限150/月，其餘各項上限500/月' 
-				};
-			}
+			const uniGroups = {
+				'統一集團': ['7-11', '康是美', '夢時代', '統一時代百貨', 'DREAM PLAZA', 'UNIKCY',
+							'玲廊滿藝', 'BEING sport', 'BEING spa', 'BEING fit', '星巴克', '21世紀', 
+							'Mister Donut', 'COLD STONE酷聖石冰淇淋', 'Semeur聖娜', '家樂福', 
+							'Mia C‘bon', 'Yahoo購物', '博客來', '聖德科斯', '統一生機', '速邁樂', 
+							'foodomo', '鮮拾網', 'DUSKIN', '黑貓宅急便', 'ibon售票系統', '統一渡假村', '台北W飯店', 
+							'台北時代寓所', '統一友友旅行社'
+				] 
+			};
+			const isUni = Object.values(uniGroups).flat().some(k => s.includes(k.toUpperCase()));
+			// 取得所有商店並轉成字串
+			const allUniShopsStr = uniGroups['統一集團'].join('、');
 			
-			// 3. 非統一集團，但使用 icash Pay
-			if (isIcashPay) {
-				return { 
-					...base, 
-					rate: 5, 
-					plan: '一般通路 icash Pay', 
-					note: `基礎1%+icash Pay 4%`, 
-					planDesc: '一般國內消費使用 icash Pay 支付。', 
-					dynamicScope: [{ title: '支付方式', shops: 'icash Pay 合作通路' }], 
-					limit: 'icash Pay 加碼上限 150 點/月' 
-				};
+			let rawDetails = [];
+			let scopeShops = ''; // 用來存放顯示用的商店字串
+
+			if (cat === '海外消費' || s.includes('海外')) {
+				rawDetails = [
+					{ name: '國外一般', rate: 2, pointLimit: null },
+					{ name: '國外實體商店', rate: 1, pointLimit: null },
+					{ name: '國外實體加碼', rate: 8, pointLimit: 500 }
+				];
+				scopeShops = '全球國外實體商店';
+			} else if (isUni) {
+				rawDetails = [
+					{ name: '國內一般', rate: 1, pointLimit: null },
+					{ name: '統一企業集團', rate: 2, pointLimit: 500 },
+					{ name: '採點任務', rate: missionRate, pointLimit: 500 },
+					{ name: 'icash Pay', rate: 4, pointLimit: 150 }
+				];
+				scopeShops = allUniShopsStr;
+			} else {
+				rawDetails = [
+					{ name: '一般消費', rate: 1, pointLimit: null },
+					{ name: 'icash Pay', rate: 4, pointLimit: 150 }
+				];
+				scopeShops = '國內一般消費通路';
 			}
 
-			// 4. 一般消費 (無 icash Pay, 非集團)
+			const finalDetails = processDetails(rawDetails);
+			const effectiveTotalRate = finalDetails.reduce((sum, item) => sum + item.activeRate, 0);
+
+			const remainingCaps = finalDetails.filter(d => d.limitAmt !== Infinity && !d.isFull);
+			const minRemaining = remainingCaps.length > 0 ? Math.min(...remainingCaps.map(c => c.remaining)) : Infinity;
+
 			return { 
 				...base, 
-				rate: 1, 
-				plan: '一般消費', 
-				note: '保底 1%', 
-				planDesc: '一般通路回饋。', 
-				dynamicScope: [{ title: '一般通路', shops: '全台一般消費' }], 
-				limit: '1% 無上限' 
+				rate: effectiveTotalRate,
+				rateDetails: finalDetails,
+				canBrush: minRemaining === Infinity ? Infinity : Math.floor(minRemaining),
+				plan: s.includes('海外') ? '國外實體 11%' : (isUni ? '統一集團通路' : '一般通路'),
+				note: `各活動上限獨立計算`,
+				// --- 補回關鍵的 dynamicScope 欄位 ---
+				dynamicScope: [
+					{ title: '適用範圍', shops: scopeShops }
+				]
 			};
-		}
-
+		};
+				
 		//聯邦
-        function getFed(cat, shop) {
-            let base = { bank: '聯邦銀行', name: 'LINE Bank 卡', pointType: '現金回饋' };
-            const highRateShops = ['NETFLIX','MOMO','PCHOME','蝦皮','酷澎'];
-            const scope = [{ title: '網購電商', shops: '蝦皮｜MOMO｜PCHOME｜酷澎｜Yahoo購物' }];
-			// 2. 排除超商
-			if (shop.toUpperCase().includes('7-11') || shop.toUpperCase().includes('全家')) {
+        const getFed = (cat, shop, spent = 0) => {
+			const s = shop.toUpperCase();
+			const currentSpent = Number(spent) || 0;
+			let base = { bank: '聯邦銀行', name: 'LINE Bank 卡', pointType: '現金', storeId: 'fed_lb' };
+
+			// 排除超商邏輯
+			if (s.includes('7-11') || s.includes('全家')) {
 				return { 
 					...base, 
 					rate: 0, 
 					plan: '無回饋', 
-					note: '無回饋', 
-					planDesc: '無回饋', 
-					dynamicScope: [{ title: '無回饋', shops: '無回饋' }], 
-					limit: '無回饋' 
+					note: '排除超商', 
+					rateDetails: [],
+					dynamicScope: [{ title: '排除通路', shops: '7-11、全家' }] 
 				};
 			}
-            if (highRateShops.some(s => shop.toUpperCase().includes(s))) return { ...base, rate: 3, plan: '指定通路', note: '上限300元', planDesc: '電商平台專屬加碼。', dynamicScope: scope, limit: '加碼上限 300 元。' };
-            return { ...base, rate: 1, plan: '一般消費', note: '超商、麥當勞等小額支付無回饋。', planDesc: '一般通路回饋。', dynamicScope: [{ title: '一般通路', shops: '國內一般消費' }], limit: '無上限。' };
-        }
+
+			const processDetails = (details) => {
+				return details.map(item => {
+					const rawLimit = (item.pointLimit && item.rate > 0) ? (item.pointLimit / (item.rate / 100)) : Infinity;
+					const calculatedLimit = rawLimit === Infinity ? Infinity : Math.floor(rawLimit);
+					
+					const isFull = calculatedLimit !== Infinity && currentSpent >= calculatedLimit;
+					return {
+						...item,
+						limitAmt: calculatedLimit,
+						activeRate: isFull ? 0 : item.rate,
+						remaining: calculatedLimit === Infinity ? Infinity : Math.max(0, calculatedLimit - currentSpent),
+						progress: calculatedLimit === Infinity ? 0 : Math.min(100, (currentSpent / calculatedLimit) * 100),
+						isFull: isFull
+					};
+				});
+			};
+
+			const highRateShops = ['NETFLIX','MOMO','PCHOME','蝦皮','酷澎'];
+			const isHighRate = highRateShops.some(k => s.includes(k));
+			
+			let rawDetails = isHighRate 
+				? [
+					//{ name: '國內一般', rate: 1, pointLimit: null },
+					{ name: '網購加碼', rate: 3, pointLimit: 300 } // $300 / 2% = 15,000 元
+				  ]
+				: [{ name: '國內一般', rate: 1, pointLimit: null }];
+
+			const finalDetails = processDetails(rawDetails);
+			const effectiveTotalRate = finalDetails.reduce((sum, item) => sum + item.activeRate, 0);
+			const remainingCaps = finalDetails.filter(d => d.limitAmt !== Infinity && !d.isFull);
+			const minRemaining = remainingCaps.length > 0 ? Math.min(...remainingCaps.map(c => c.remaining)) : Infinity;
+
+			return { 
+				...base, 
+				rate: effectiveTotalRate, 
+				rateDetails: finalDetails,
+				canBrush: minRemaining === Infinity ? Infinity : Math.floor(minRemaining),
+				plan: isHighRate ? '指定網購加碼' : '一般消費',
+				note: `各活動上限獨立計算`,
+				// 補回 SHOP 顯示
+				dynamicScope: [
+					{ title: '適用範圍', shops: isHighRate ? highRateShops.join('、') : '國內一般消費通路' }
+				]
+			};
+		};
 		
 		//國泰
-		function getCube(cat, shop) {
+        const getCube = (cat, shop, spent = 0) => {
 			const s = shop.toUpperCase();
-			let base = { bank: '國泰世華', name: '青年簽帳卡', pointType: '現金回饋' };
+			const currentSpent = Number(spent) || 0;
+			let base = { bank: '國泰世華', name: '青年簽帳卡', pointType: '現金', storeId: 'cathay_youth' };
 
-			// 2. 排除超商
+			// 排除超商
 			if (s.includes('7-11') || s.includes('全家')) {
 				return { 
 					...base, 
 					rate: 0, 
 					plan: '無回饋', 
-					note: '無回饋', 
-					planDesc: '無回饋', 
-					dynamicScope: [{ title: '無回饋', shops: '無回饋' }], 
-					limit: '無回饋' 
-				};
-			}
-			
-			// 1. 指定加碼通路 (通勤交通 或 海外)
-			if (s.includes('海外') ||s.includes('台鐵') || s.includes('高鐵')) {
-				return { 
-					...base, 
-					rate: 3, 
-					plan: '指定權益', 
-					note: '上限300元', 
-					planDesc: '交通與海外消費專屬加碼。', 
-					dynamicScope: [
-						{ title: '通勤交通', shops: getShopsByCategory('通勤交通') },
-						{ title: '海外消費', shops: '海外實體店面與指定通路' }
-					], 
-					limit: '加碼上限 300 元。' 
+					note: '排除超商', 
+					rateDetails: [],
+					dynamicScope: [{ title: '排除通路', shops: '7-11、全家' }]
 				};
 			}
 
-			// 2. 指定支付 (LINE Pay)
-			if (s.includes('LINE PAY')) {
-				return { 
-					...base, 
-					rate: 2, 
-					plan: '支付加碼', 
-					note: '無上限', 
-					planDesc: '綁定指定行動支付消費。', 
-					dynamicScope: [{ title: '指定支付', shops: 'LINE Pay' }], 
-					limit: '2% 無上限' 
-				};
+			const processDetails = (details) => {
+				return details.map(item => {
+					// 計算上限並取整數
+					const rawLimit = (item.pointLimit && item.rate > 0) ? (item.pointLimit / (item.rate / 100)) : Infinity;
+					const calculatedLimit = rawLimit === Infinity ? Infinity : Math.floor(rawLimit);
+					
+					const isFull = calculatedLimit !== Infinity && currentSpent >= calculatedLimit;
+					return {
+						...item,
+						limitAmt: calculatedLimit,
+						activeRate: isFull ? 0 : item.rate,
+						remaining: calculatedLimit === Infinity ? Infinity : Math.max(0, calculatedLimit - currentSpent),
+						progress: calculatedLimit === Infinity ? 0 : Math.min(100, (currentSpent / calculatedLimit) * 100),
+						isFull: isFull
+					};
+				});
+			};
+
+			let rawDetails = [];
+			let scopeShops = '';
+
+			if (s.includes('海外') || s.includes('台鐵') || s.includes('高鐵')) {
+				rawDetails = [
+					//{ name: '基本回饋', rate: 0.3, pointLimit: null },
+					{ name: '指定權益加碼', rate: 3, pointLimit: 200 } 
+				];
+				scopeShops = '海外消費、台鐵、高鐵';
+			} else if (s.includes('LINE PAY')) {
+				rawDetails = [
+					//{ name: '基本回饋', rate: 0.3, pointLimit: null },
+					{ name: 'LINE PAY支付加碼', rate: 2, pointLimit: null } 
+				];
+				scopeShops = 'LINE Pay 綁定支付';
+			} else {
+				rawDetails = [{ name: '一般消費', rate: 0.3, pointLimit: null }];
+				scopeShops = '國內一般消費通路';
 			}
 
-			// 3. 一般消費
+			const finalDetails = processDetails(rawDetails);
+			const effectiveTotalRate = finalDetails.reduce((sum, item) => sum + item.activeRate, 0);
+			const remainingCaps = finalDetails.filter(d => d.limitAmt !== Infinity && !d.isFull);
+			const minRemaining = remainingCaps.length > 0 ? Math.min(...remainingCaps.map(c => c.remaining)) : Infinity;
+
 			return { 
 				...base, 
-				rate: 0.3, 
-				plan: '一般消費', 
-				note: '基本 0.3%', 
-				planDesc: '保底現金回饋。', 
-				dynamicScope: [{ title: '一般通路', shops: '非指定加碼之消費' }], 
-				limit: '無上限' 
+				rate: effectiveTotalRate, 
+				rateDetails: finalDetails,
+				canBrush: minRemaining === Infinity ? Infinity : Math.floor(minRemaining),
+				plan: s.includes('LINE PAY') ? '支付加碼' : (rawDetails.length > 1 ? '指定權益加碼' : '一般消費'),
+				note: `各活動上限獨立計算`,
+				// 補回 SHOP 顯示
+				dynamicScope: [
+					{ title: '適用範圍', shops: scopeShops }
+				]
 			};
-		}
+		};
 		
-		//中信 line pay
-		function getLINEPay(cat, shop) {
-			const s = shop.toUpperCase();
-			let base = { bank: '中國信託', name: 'LINE Pay 卡', pointType: 'LINE Points回饋' };
-			
-			// 2. 排除超商
-			if (s.includes('7-11') || s.includes('全家')) {
-				return { 
-					...base, 
-					rate: 0, 
-					plan: '無回饋', 
-					note: '無回饋', 
-					planDesc: '無回饋', 
-					dynamicScope: [{ title: '無回饋', shops: '無回饋' }], 
-					limit: '無回饋' 
-				};
-			}
-			
-			// 1. 海外
-			if (s.includes('海外') ) {
-				return { 
-					...base, 
-					rate: 2.8, 
-					plan: '海外消費', 
-					note: '海外消費', 
-					planDesc: '海外消費', 
-					dynamicScope: [{ title: '海外消費', shops: '海外消費' }], 
-					limit: '無上限' 
-				};
-			}
-			// 3. 一般消費
-			return { 
-				...base, 
-				rate: 1, 
-				plan: '一般消費', 
-				note: '基本 1%', 
-				planDesc: '保底現金回饋。', 
-				dynamicScope: [{ title: '一般通路', shops: '非指定加碼之消費' }], 
-				limit: '無上限' 
-			};
-		}
+		//中信LINE PAY
+        const getLINEPay = (cat, shop) => {
+            const s = shop.toUpperCase();
+            let base = { bank: '中國信託', name: 'LINE Pay 卡', pointType: 'LINE Points', storeId: 'ctbc_lp' };
+            if (s.includes('7-11') || s.includes('全家')) return { ...base, rate: 0, plan: '無回饋', note: '排除超商', planDesc: '超商小額支付無回饋。', dynamicScope: [{title:'排除', shops:'7-11、全家'}], limit: '無回饋' };
+            if (s.includes('海外')) return { ...base, rate: 2.8, plan: '海外消費', note: '無上限', planDesc: '海外消費回饋。', dynamicScope: [{title:'海外', shops:'海外消費'}], limit: '無上限' };
+            return { ...base, rate: 1, plan: '一般消費', note: '保底 1%', planDesc: '保底現金回饋。', dynamicScope: [{title:'一般', shops:'一般消費'}], limit: '無上限' };
+        };
 
+        // --- 同步與互動功能 ---
+        const showToast = (msg, type = 'success') => { toast.value = { show: true, msg, type }; setTimeout(() => toast.value.show = false, 2500); };
+
+        const syncFromCloud = async () => {
+            if (!config.value.gasUrl || !config.value.sheetId) return;
+            isSyncing.value = true;
+            try {
+                const res = await fetch(`${config.value.gasUrl}?sId=${config.value.sheetId}&t=${Date.now()}`);
+                const data = await res.json();
+                if (data && !data.error) {
+                    storageData.value = data;
+                    localStorage.setItem('cardMaster_v1.3', JSON.stringify(data));
+                    showToast("同步成功");
+                }
+            } catch (e) { showToast("連線失敗", "error"); } finally { isSyncing.value = false; }
+        };
+
+        const confirmUpdate = async () => {
+            if (!config.value.gasUrl || isSyncing.value) return;
+            const sid = updateCard.value.storeId;
+            const addValue = Number(tempAmount.value) || 0;
+            isSyncing.value = true;
+            try {
+                if (!storageData.value[sid]) storageData.value[sid] = { currentSpend: 0 };
+                storageData.value[sid].currentSpend += addValue;
+                
+                await fetch(config.value.gasUrl, {
+                    method: 'POST', mode: 'no-cors',
+                    body: JSON.stringify({ ...storageData.value, _sheetId: config.value.sheetId })
+                });
+                
+                localStorage.setItem('cardMaster_v1.3', JSON.stringify(storageData.value));
+                showToast(`已累加 $${addValue}`);
+                updateCard.value = null;
+            } catch (e) { showToast("更新失敗", "error"); } finally { isSyncing.value = false; }
+        };
+
+        const resetCard = async () => {
+            if (!config.value.gasUrl || isSyncing.value || !confirm('確定清空此卡本月累計？')) return;
+            const sid = updateCard.value.storeId;
+            isSyncing.value = true;
+            try {
+                if (storageData.value[sid]) storageData.value[sid].currentSpend = 0;
+                await fetch(config.value.gasUrl, {
+                    method: 'POST', mode: 'no-cors',
+                    body: JSON.stringify({ ...storageData.value, _sheetId: config.value.sheetId })
+                });
+                localStorage.setItem('cardMaster_v1.3', JSON.stringify(storageData.value));
+                showToast("數據已歸零");
+                updateCard.value = null;
+            } catch (e) { showToast("歸零失敗", "error"); } finally { isSyncing.value = false; }
+        };
+
+        const saveSettings = () => {
+            localStorage.setItem('cm_gasUrl', config.value.gasUrl);
+            localStorage.setItem('cm_sheetId', config.value.sheetId);
+            showSettings.value = false;
+            syncFromCloud();
+        };
+
+        // --- 計算屬性 ---
         const sortedResults = computed(() => {
-            const sk = shopInput.value.trim().toUpperCase();
-            const shopObj = shopDatabase.find(d => d.name.toUpperCase() === sk);
-            const cat = shopObj ? shopObj.category : '一般';
+		const sk = skInput.value.trim().toUpperCase();
+		const matchedShop = shopDatabase.find(d => sk !== '' && d.name.toUpperCase().includes(sk));
+		const cat = matchedShop ? matchedShop.category : '一般';
 
-            const list = [
-                { id: 1, ...getRichart(cat, sk), icon: 'fas fa-gem', iconColor: 'bg-rose-500', rounding: 'floor' },
-                { id: 2, ...getCTBC_UNI(cat, sk, uniCount.value), icon: 'fas fa-shopping-cart', iconColor: 'bg-orange-500', rounding: 'round' },
-                { id: 3, ...getCube(cat, sk), icon: 'fas fa-id-card', iconColor: 'bg-green-600', rounding: 'round'},
-                { id: 4, ...getFed(cat, sk), icon: 'fas fa-comment-dollar', iconColor: 'bg-green-400', rounding: 'round' },
-                { id: 5, ...getLINEPay(cat, sk), icon: 'fab fa-line', iconColor: 'bg-emerald-500', rounding: 'round'}
-            ];
-            return list.sort((a, b) => b.rate - a.rate);
-        });
+		// 建立一個安全抓取金額的輔助變數
+		const getSafeSpend = (id) => {
+			return (storageData.value && storageData.value[id]) ? Number(storageData.value[id].currentSpend) : 0;
+		};
 
-        const openModal = (card) => { activeCard.value = card; };
-        const selectShop = (s) => { shopInput.value = s.name; showSuggestions.value = false; };
-        const clearSearch = () => { shopInput.value = ''; showSuggestions.value = false; };
+		const list = [
+			{ 
+				id: 1, 
+				...getRichart(cat, sk), 
+				icon: 'fas fa-gem', iconColor: 'bg-rose-500', rounding: 'floor' 
+			},
+			{ 
+				id: 2, 
+				...getCTBC_UNI(cat, sk, uniCount.value, getSafeSpend('ctbc_uni')), 
+				icon: 'fas fa-shopping-cart', iconColor: 'bg-orange-500', rounding: 'round' 
+			},
+			{ 
+				id: 3, 
+				...getCube(cat, sk, getSafeSpend('cathay_youth')), 
+				icon: 'fas fa-id-card', iconColor: 'bg-emerald-600', rounding: 'round' 
+			},
+			{ 
+				id: 4, 
+				...getFed(cat, sk, getSafeSpend('fed_lb')), 
+				icon: 'fas fa-comment-dollar', iconColor: 'bg-sky-500', rounding: 'round' 
+			},
+			{ 
+				id: 5, 
+				...getLINEPay(cat, sk, getSafeSpend('ctbc_lp')), 
+				icon: 'fab fa-line', iconColor: 'bg-green-500', rounding: 'round' 
+			}
+		];
+		return list.sort((a, b) => b.rate - a.rate);
+	});
+
         const suggestions = computed(() => {
-            if (!shopInput.value || !showSuggestions.value) return [];
-            const input = shopInput.value.toUpperCase();
-            return shopDatabase.filter(d => d.name.toUpperCase().includes(input)).slice(0, 5);
+            if (!skInput.value) return [];
+            const input = skInput.value.toUpperCase();
+            return shopDatabase.filter(d => d.name.toUpperCase().includes(input)).slice(0, 6);
         });
 
-        return { shopInput, amount, uniCount, sortedResults, suggestions, selectShop, clearSearch, calculateReward, showSuggestions, activeCard, openModal };
+        onMounted(() => { if(config.value.gasUrl) syncFromCloud(); });
+
+        return {
+            config, storageData, skInput, amount, uniCount, isSyncing, showSettings, showSuggestions, toast, detailCard, updateCard, tempAmount,
+            calculateReward: (amt, rate, rounding) => {
+                const val = amt * (rate / 100);
+                return rounding === 'floor' ? Math.floor(val) : Math.round(val);
+            },
+            getCardStorage: (id) => storageData.value[id] || { currentSpend: 0 },
+            getProgress: (res) => {
+                if (!res.limitAmt) return 0;
+                const spend = storageData.value[res.storeId]?.currentSpend || 0;
+                return Math.min(Math.round((spend / res.limitAmt) * 100), 100);
+            },
+            syncFromCloud, openDetails: (c) => detailCard.value = c,
+            openUpdate: (c) => { updateCard.value = c; tempAmount.value = amount.value; },
+            confirmUpdate, resetCard, saveSettings, selectsk: (s) => { skInput.value = s.name; showSuggestions.value = false; },
+            suggestions, sortedResults
+        };
     }
 }).mount('#app');
 </script>
