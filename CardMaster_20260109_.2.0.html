@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CardMaster 2026 旗艦版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&family=JetBrains+Mono:wght@700&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #f1f5f9; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .best-card { transform: scale(1.02); border-color: #f59e0b; box-shadow: 0 20px 25px -5px rgba(245, 158, 11, 0.2); }
+        .sync-loading { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .modal-enter-active, .modal-leave-active { transition: all 0.3s ease; }
+        .modal-enter-from, .modal-leave-to { opacity: 0; transform: translateY(30px); }
+    </style>
+</head>
+<body class="max-w-md mx-auto shadow-2xl min-h-screen bg-slate-50">
+
+<div id="app" class="min-h-screen pb-24">
+    <header class="p-6 bg-slate-900 text-white rounded-b-[2.5rem] shadow-xl mb-6 sticky top-0 z-40">
+        <div class="flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-black text-amber-400 tracking-tight">CardMaster</h1>
+                <p class="text-[10px] opacity-50 font-bold tracking-widest uppercase">2026 完整權益同步版</p>
+            </div>
+            <div class="flex gap-2">
+                <div @click="showSettings = true" class="cursor-pointer bg-white/10 p-2 rounded-full border border-white/20 text-amber-200"><i class="fas fa-cog"></i></div>
+                <div @click="syncFromCloud" class="cursor-pointer bg-white/10 px-3 py-1 rounded-full border border-white/20 text-[10px] font-bold text-amber-200 flex items-center">
+                    <i :class="['fas fa-sync-alt mr-1', isSyncing ? 'sync-loading' : '']"></i>
+                    {{ isSyncing ? '同步中' : '連線雲端' }}
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div v-if="toast.show" class="fixed top-10 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 rounded-2xl shadow-2xl font-black text-sm transition-all"
+        :class="toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'">
+        {{ toast.msg }}
+    </div>
+
+    <div class="px-5 space-y-6">
+        <div class="space-y-3">
+            <div class="relative bg-white rounded-3xl p-4 shadow-sm border-2 border-transparent focus-within:border-amber-400 transition-all">
+                <div class="flex items-center">
+                    <i class="fas fa-search text-slate-300 mr-2"></i>
+                    <input v-model="skInput" @focus="showSuggestions = true" type="text" placeholder="輸入店名或支付方式..." class="w-full bg-transparent focus:outline-none font-bold text-slate-700">
+                    <i v-if="skInput" @click="skInput = ''" class="fas fa-times-circle text-slate-300 cursor-pointer"></i>
+                </div>
+                <div v-if="suggestions.length > 0 && showSuggestions" class="absolute left-0 top-full z-50 w-full bg-white border rounded-2xl mt-2 shadow-2xl overflow-hidden font-bold max-h-60 overflow-y-auto">
+                    <div v-for="s in suggestions" :key="s.name" @click="selectsk(s)" class="p-4 hover:bg-amber-50 cursor-pointer border-b last:border-0 flex justify-between items-center">
+                        <span class="text-slate-700">{{ s.name }}</span>
+                        <span class="text-[10px] bg-slate-100 px-2 py-1 rounded-full text-slate-400">{{ s.category }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <div class="flex-1 bg-white rounded-3xl p-4 shadow-sm flex items-center">
+                    <span class="text-amber-500 font-black mr-2 text-xl">$</span>
+                    <input v-model.number="amount" type="number" class="w-full bg-transparent focus:outline-none font-mono text-xl font-bold">
+                </div>
+                <div class="bg-white px-4 rounded-3xl shadow-sm flex flex-col justify-center min-w-[100px]">
+                    <p class="text-[9px] font-black text-slate-400 uppercase">UNI 任務</p>
+                    <div class="flex items-center gap-2">
+                        <input v-model.number="uniCount" type="range" min="1" max="5" class="w-16 h-1.5 accent-orange-500">
+                        <span class="font-mono font-bold text-orange-600 text-sm">{{ uniCount }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-5">
+            <h2 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">智能推薦排行</h2>
+            <div v-for="(res, index) in sortedResults" :key="res.id" 
+                class="bg-white p-6 rounded-[2.5rem] border-2 relative transition-all duration-300 shadow-sm"
+                :class="[index === 0 ? 'best-card border-amber-400' : 'border-transparent opacity-95']">
+                
+                <div class="flex justify-between items-start mb-4">
+                    <div class="flex items-center">
+                        <div :class="['w-12 h-12 rounded-2xl flex items-center justify-center mr-3 text-white shadow-sm text-xl', res.iconColor]">
+                            <i :class="res.icon"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase leading-none mb-1">{{ res.bank }}</p>
+                            <h3 class="text-lg font-black text-slate-800">{{ res.name }}</h3>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-3xl font-black text-slate-800 tracking-tighter">{{ res.rate }}<span class="text-sm ml-0.5">%</span></div>
+                        <div class="flex gap-1 mt-1 justify-end">
+                            <button @click="openDetails(res)" class="text-[10px] font-bold bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full hover:bg-slate-200">詳情</button>
+                            <button @click="openUpdate(res)" class="text-[10px] font-bold bg-slate-900 text-amber-400 px-3 py-1.5 rounded-full">更新</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
+                    <div>
+                        <span class="text-blue-600 text-[11px] font-black block mb-0.5">{{ res.plan }}</span>
+                        <p class="text-[11px] text-slate-400 font-medium">{{ res.note }}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xl font-black text-slate-800 font-mono">{{ calculateReward(amount, res.rate, res.rounding) }}</span>
+                        <p class="text-[9px] font-bold text-slate-400 uppercase">{{ res.pointType }}</p>
+                    </div>
+                </div>
+
+				<div v-if="res.rateDetails && res.rateDetails.length > 0" class="mt-4 space-y-3">
+					<div v-for="(act, idx) in res.rateDetails" :key="idx" class="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+						<div class="flex justify-between items-end mb-1.5">
+							<div>
+								<p class="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+									{{ act.name }} 
+									<span class="ml-1 font-bold" :class="act.isFull ? 'text-red-500' : 'text-slate-600'">
+										{{ act.activeRate }}%
+									</span>
+								</p>
+								<p class="text-[10px] font-mono font-bold text-slate-700">
+									已刷 ${{ (getCardStorage(res.storeId).currentSpend || 0).toLocaleString() }}
+								</p>
+							</div>
+							<div class="text-right">
+								<p class="text-[9px] font-black text-slate-400 uppercase">剩餘額度</p>
+								<p class="text-[10px] font-mono font-bold" 
+								   :class="act.isFull ? 'text-red-500' : 'text-emerald-600'">
+									{{ act.limitAmt === Infinity ? '無上限' : '$' + (act.remaining || 0).toLocaleString() }}
+								</p>
+							</div>
+						</div>
+
+						<div v-if="act.limitAmt !== Infinity" class="relative w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+							<div class="absolute top-0 left-0 h-full transition-all duration-1000 ease-out" 
+								 :style="{ 
+									width: (act.progress || 0) + '%', 
+									backgroundColor: act.isFull ? '#ef4444' : ((act.progress || 0) > 80 ? '#f59e0b' : '#10b981') 
+								 }">
+							</div>
+						</div>
+
+						<div class="flex justify-between mt-1">
+							<span class="text-[8px] font-black text-slate-400">{{ Math.round(act.progress || 0) }}%</span>
+							<span class="text-[8px] font-black text-slate-400 italic">
+								上限 {{ act.limitAmt === Infinity ? '∞' : '$' + (act.limitAmt || 0).toLocaleString() }}
+							</span>
+						</div>
+					</div>
+				</div>
+
+				<div v-else-if="res.limitAmt && res.limitAmt !== Infinity" class="mt-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+					<div class="flex justify-between mb-1 text-[10px] font-bold">
+						<span class="text-slate-400">累積消費進度</span>
+						<span class="text-slate-700">${{ (getCardStorage(res.storeId).currentSpend || 0).toLocaleString() }} / ${{ res.limitAmt.toLocaleString() }}</span>
+					</div>
+					<div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+						<div class="h-full bg-emerald-500 transition-all duration-1000" 
+							 :style="{ width: Math.min(100, ((getCardStorage(res.storeId).currentSpend || 0) / res.limitAmt) * 100) + '%' }">
+						</div>
+					</div>
+				</div>
+
+				<div v-else-if="res && res.limitAmt" class="mt-4 bg-slate-50 p-4 rounded-3xl border border-slate-100">
+					</div>
+            </div>
+        </div>
+    </div>
+
+    <transition name="modal">
+        <div v-if="detailCard" class="fixed inset-0 z-[100] flex items-end justify-center px-4 pb-10">
+            <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" @click="detailCard = null"></div>
+            <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 relative z-10 border-t-8 border-amber-400 max-h-[80vh] overflow-y-auto">
+                <div class="flex items-center gap-3 mb-6">
+                    <div :class="['w-12 h-12 rounded-2xl flex items-center justify-center text-white text-xl shadow-lg', detailCard.iconColor]">
+                        <i :class="detailCard.icon"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-2xl font-black text-slate-800">{{ detailCard.name }}</h3>
+                        <p class="text-xs font-bold text-blue-600">{{ detailCard.plan }}</p>
+                    </div>
+                </div>
+                
+                <div class="space-y-6">
+					<!--
+                    <div class="bg-slate-50 p-5 rounded-3xl border border-slate-100">
+                        <p class="text-[10px] font-black text-slate-400 uppercase mb-2">權益說明</p>
+                        <p class="text-sm font-bold text-slate-700 leading-relaxed">{{ detailCard.planDesc }}</p>
+                    </div>
+ 					-->
+                    <div>
+                        <p class="text-[10px] font-black text-slate-400 uppercase mb-3 ml-1">適用通路詳細清單</p>
+                        <div class="space-y-3">
+                            <div v-for="group in detailCard.dynamicScope" :key="group.title" class="mb-4">
+								<p class="text-sm font-black text-slate-800">{{ group.title }}</p>
+								<p class="text-xs text-slate-500 mt-1">{{ group.shops }}</p>
+							</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-amber-50 p-5 rounded-3xl border border-amber-100">
+                        <p class="text-[10px] font-black text-amber-600 uppercase mb-1">額度與回饋類型</p>
+                        <p class="text-sm font-bold text-amber-900 leading-tight">{{ detailCard.limit }}</p>
+                        <p class="text-[10px] text-amber-700 mt-2 font-bold">點數性質：{{ detailCard.pointType }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </transition>
+
+    <transition name="modal">
+        <div v-if="updateCard" class="fixed inset-0 z-[100] flex items-end justify-center px-4 pb-10">
+            <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="updateCard = null"></div>
+            <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl relative z-10 border-t-8 border-amber-400">
+                <h3 class="text-2xl font-black text-slate-800 mb-2 text-center">累加消費金額</h3>
+                <p class="text-center text-xs font-bold text-slate-400 mb-6">{{ updateCard.name }} ({{ updateCard.plan }})</p>
+                
+                <div class="bg-slate-50 rounded-3xl p-6 mb-6">
+                    <p class="text-center text-[10px] font-black text-slate-400 uppercase mb-2">輸入本次消費金額</p>
+                    <input v-model.number="tempAmount" type="number" class="w-full bg-transparent font-mono font-bold text-4xl text-center outline-none focus:text-amber-500 transition">
+                </div>
+
+                <button @click="confirmUpdate" :disabled="isSyncing" class="w-full bg-slate-900 text-amber-400 py-5 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 active:scale-95 transition">
+                    <i v-if="isSyncing" class="fas fa-spinner sync-loading"></i>
+                    {{ isSyncing ? '同步至雲端...' : '確認累加金額' }}
+                </button>
+                <button @click="resetCard" :disabled="isSyncing" class="w-full text-red-400 text-[11px] font-black underline mt-6 opacity-50 hover:opacity-100 transition">本月消費強制歸零</button>
+            </div>
+        </div>
+    </transition>
+
+    <transition name="modal">
+        <div v-if="showSettings" class="fixed inset-0 z-[100] flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-slate-900/80 backdrop-blur-md" @click="showSettings = false"></div>
+            <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl relative z-10 border-t-8 border-amber-400">
+                <h3 class="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><i class="fas fa-database text-amber-500"></i> 雲端同步設定</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">GAS WebApp URL</label>
+                        <input v-model="config.gasUrl" type="text" class="w-full mt-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs outline-none focus:border-amber-400" placeholder="https://script.google.com/...">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Google Sheet ID</label>
+                        <input v-model="config.sheetId" type="text" class="w-full mt-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs outline-none focus:border-amber-400" placeholder="試算表長的 ID 字串">
+                    </div>
+                    <div class="bg-amber-50 p-4 rounded-2xl text-[10px] text-amber-700 font-bold leading-relaxed">
+                        <i class="fas fa-info-circle mr-1"></i> 設定後，刷卡金額將自動儲存於您的 Google 試算表，達成多裝置同步效果。
+                    </div>
+                    <button @click="saveSettings" class="w-full bg-slate-900 text-amber-400 py-4 rounded-2xl font-black mt-4 active:scale-95 transition">儲存並立即連線</button>
+                </div>
+            </div>
+        </div>
+    </transition>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, watch } = Vue;
+
+createApp({
+    setup() {
+        // --- 設定與狀態 ---
+        const config = ref({ 
+            gasUrl: localStorage.getItem('cm_gasUrl') || '', 
+            sheetId: localStorage.getItem('cm_sheetId') || '' 
+        });
+        const storageData = ref(JSON.parse(localStorage.getItem('cardMaster_v1.3')) || {});
+        const skInput = ref(''); 
+        const amount = ref(1000); 
+        const uniCount = ref(5);
+        const isSyncing = ref(false); 
+        const showSettings = ref(false); 
+        const showSuggestions = ref(false);
+        const toast = ref({ show: false, msg: '', type: 'success' });
+        const detailCard = ref(null); 
+        const updateCard = ref(null); 
+        const tempAmount = ref(0);
+
+        // --- 商店資料庫 ---
+        const shopDatabase = [
+            { name: '台新Pay', category: '支付方式' },{ name: '台灣Pay', category: '支付方式' },{ name: '台新Pay+', category: '支付方式' },
+			{ name: 'LINE Pay', category: '支付方式' },{ name: '7-11', category: '超商量販' },{ name: '全家', category: '超商量販' },
+			{ name: '家樂福', category: '超商量販' },{ name: '大買家', category: '超商量販' },{ name: '唐吉軻德', category: '超商量販' },
+			{ name: 'LOPIA', category: '超商量販' },{ name: '台鐵', category: '通勤交通' },{ name: '高鐵', category: '通勤交通' },
+			{ name: '台灣大車隊', category: '通勤交通' },{ name: 'LINEGO', category: '通勤交通' },{ name: 'Yoxi', category: '通勤交通' },
+			{ name: 'Uber', category: '通勤交通' },{ name: '台灣Bolt', category: '通勤交通' },{ name: '中油直營', category: '加油充電' },
+			{ name: '全國加油', category: '加油充電' },{ name: '全國特急電', category: '加油充電' },{ name: '源點EVOASIS', category: '加油充電' },
+			{ name: '華城電能EVALUE', category: '加油充電' },{ name: 'USPACE', category: '加油充電' },{ name: 'Autopass(車麻吉)', category: '加油充電' },
+			{ name: '寶雅', category: '藥妝藥局' },{ name: '康是美', category: '藥妝藥局' },{ name: '屈臣氏', category: '藥妝藥局' },
+			{ name: '杏一醫療', category: '藥妝藥局' },{ name: '大樹藥局', category: '藥妝藥局' },{ name: '丁丁藥局', category: '藥妝藥局' },
+			{ name: '佑全保健藥妝', category: '藥妝藥局' },{ name: '健康人生藥局', category: '藥妝藥局' },{ name: '新光三越', category: '指定百貨' },
+			{ name: '遠東百貨', category: '指定百貨' },{ name: '遠東SOGO', category: '指定百貨' },{ name: '漢神巨蛋', category: '指定百貨' },
+			{ name: '漢神百貨', category: '指定百貨' },{ name: '微風', category: '指定百貨' },{ name: '台北101', category: '指定百貨' },
+			{ name: '遠東巨城', category: '指定百貨' },{ name: '廣三SOGO', category: '指定百貨' },{ name: '南紡購物中心', category: '指定百貨' },
+			{ name: '誠品生活', category: '指定百貨' },{ name: '京站', category: '指定百貨' },{ name: '三創生活', category: '指定百貨' },
+			{ name: '夢時代', category: '指定百貨' },{ name: '統一時代', category: '指定百貨' },{ name: '中友百貨', category: '指定百貨' },
+			{ name: 'Mitsui Shopping Park LaLaport(南港/台中)', category: '指定百貨' },{ name: 'MITSUI OUTLET PARK (林口/台中港/台南)', category: '指定Outlet' },{ name: '華泰名品城', category: '指定Outlet' },
+			{ name: 'SKM Park Outlets', category: '指定Outlet' },{ name: 'IKEA', category: '居家裝修' },{ name: '特力屋', category: '居家裝修' },
+			{ name: 'HOLA', category: '居家裝修' },{ name: '宜得利', category: '居家裝修' },{ name: '瑪黑家居', category: '居家裝修' },
+			{ name: 'UNIQLO', category: '時尚品味' },{ name: 'GU', category: '時尚品味' },{ name: 'ZARA', category: '時尚品味' },
+			{ name: 'NET', category: '時尚品味' },{ name: 'lululemon', category: '時尚品味' },{ name: '王品瘋Pay', category: '全臺餐飲' },
+			{ name: 'Uber Eats', category: '外送平台' },{ name: 'Foodpanda', category: '外送平台' },{ name: '拓元售票', category: '購票娛樂' },
+			{ name: 'KKTIX', category: '購票娛樂' },{ name: '年代售票', category: '購票娛樂' },{ name: '寬宏售票', category: '購票娛樂' },
+			{ name: 'OPENTIX兩廳院文化生活', category: '購票娛樂' },{ name: 'FunNow', category: '購票娛樂' },{ name: '錢櫃', category: '指定KTV' },
+			{ name: '好樂迪', category: '指定KTV' },{ name: 'ONCOR', category: '指定KTV' },{ name: 'sing!go', category: '指定KTV' },
+			{ name: '享溫馨', category: '指定KTV' },{ name: '晶華國際酒店集團', category: '指定飯店' },{ name: '雲朗觀光', category: '指定飯店' },
+			{ name: '台灣萬豪國際集團旗下飯店', category: '指定飯店' },{ name: '煙波國際觀光集團', category: '指定飯店' },{ name: '老爺酒店集團', category: '指定飯店' },
+			{ name: '福華集團', category: '指定飯店' },{ name: '漢來飯店事業群', category: '指定飯店' },{ name: '台北君悅酒店', category: '指定飯店' },
+			{ name: '高雄洲際酒店', category: '指定飯店' },{ name: '臺中勤美洲際酒店', category: '指定飯店' },{ name: '礁溪寒沐酒店', category: '指定飯店' },
+			{ name: '蝦皮', category: '網購平台' },{ name: 'momo', category: '網購平台' },{ name: '酷澎(Coupang)', category: '網購平台' },
+			{ name: 'PChome', category: '網購平台' },{ name: '淘寶', category: '網購平台' },{ name: 'Amazon', category: '網購平台' },
+			{ name: '東森', category: '網購平台' },{ name: '博客來', category: '網購平台' },{ name: 'Richart Mart', category: '網購平台' },
+			{ name: 'PayEasy', category: '網購平台' },{ name: 'iHerb', category: '網購平台' },{ name: 'SHEIN', category: '網購平台' },
+			{ name: 'Farfetch', category: '網購平台' },{ name: 'Olive Young', category: '網購平台' },{ name: '知識衛星', category: '線上課程' },
+			{ name: 'Amazing Talker', category: '線上課程' },{ name: 'Tutor ABC', category: '線上課程' },{ name: 'Hahow', category: '線上課程' },
+			{ name: 'PressPlay', category: '線上課程' },{ name: 'MyCard', category: '遊戲影音' },{ name: '遊戲橘子', category: '遊戲影音' },
+			{ name: 'Steam', category: '遊戲影音' },{ name: 'PlayStation', category: '遊戲影音' },{ name: 'Nintendo', category: '遊戲影音' },
+			{ name: 'Netflix', category: '遊戲影音' },{ name: 'Disney+', category: '遊戲影音' },{ name: 'ChatGPT', category: 'AI服務' },
+			{ name: 'Notion', category: 'AI服務' },{ name: 'Canva', category: 'AI服務' },{ name: 'Perplexity', category: 'AI服務' },
+			{ name: 'Claude', category: 'AI服務' },{ name: '中華航空', category: '航空公司' },{ name: '長榮航空', category: '航空公司' },
+			{ name: '星宇航空', category: '航空公司' },{ name: '台灣虎航', category: '航空公司' },{ name: '國泰航空', category: '航空公司' },
+			{ name: '華信航空', category: '航空公司' },{ name: '立榮航空', category: '航空公司' },{ name: '樂桃航空', category: '航空公司' },
+			{ name: '阿聯酋航空', category: '航空公司' },{ name: '亞洲航空', category: '航空公司' },{ name: '酷航', category: '航空公司' },
+			{ name: '捷星航空', category: '航空公司' },{ name: '新加坡航空', category: '航空公司' },{ name: '日本航空', category: '航空公司' },
+			{ name: '越捷航空', category: '航空公司' },{ name: 'Uber', category: '海外交通/網路' },{ name: 'Grab', category: '海外交通/網路' },
+			{ name: 'SUICA', category: '海外交通/網路' },{ name: 'ICOCA', category: '海外交通/網路' },{ name: 'PASMO', category: '海外交通/網路' },
+			{ name: 'WOWPASS', category: '海外交通/網路' },{ name: 'AIRSIM', category: '海外交通/網路' },{ name: 'Klook', category: '訂房平台' },
+			{ name: 'KKday', category: '訂房平台' },{ name: 'Agoda', category: '訂房平台' },{ name: 'Booking.com', category: '訂房平台' },
+			{ name: 'Trip.com', category: '訂房平台' },{ name: 'Airbnb', category: '訂房平台' },
+			{ name: 'Hotels.com', category: '訂房平台' },{ name: 'Expedia', category: '訂房平台' },{ name: '雄獅旅遊', category: '旅行社' },
+			{ name: '易遊網', category: '旅行社' },{ name: '東南旅遊', category: '旅行社' },{ name: '可樂旅遊', category: '旅行社' },
+			{ name: '長汎假期', category: '旅行社' },{ name: '五福旅遊', category: '旅行社' },{ name: '喜鴻假期', category: '旅行社' },
+			{ name: '易飛旅遊', category: '旅行社' },{ name: '燦星旅遊', category: '旅行社' },{ name: '加利利旅行社', category: '旅行社' },
+			{ name: '鳳凰國際旅行社', category: '旅行社' },{ name: '山富旅遊', category: '旅行社' },{ name: '行健旅遊', category: '旅行社' },
+			{ name: '海外', category: '海外消費' }
+        ];
+
+        const getShopsByCategory = (cat) => shopDatabase.filter(d => d.category === cat).map(d => d.name).join('｜');
+		// 傳入 rates 陣列與目前已刷金額，回傳剩餘可得的總趴數
+		const getEffectiveRate = (rates, currentSpent) => {
+			let totalRate = 0;
+			rates.forEach(r => {
+				// 如果該項沒有金額限制，或目前刷卡額還沒超過上限，就加上該項趴數
+				if (!r.limitAmt || currentSpent < r.limitAmt) {
+					totalRate += r.rate;
+				}
+			});
+			return totalRate;
+		};
+		
+		const getCardStorage = (id) => {
+			if (!id) return { currentSpend: 0 };
+			// 如果 storageData[id] 不存在，就回傳一個預設物件
+			if (!storageData.value[id]) {
+				return { currentSpend: 0 };
+			}
+			return storageData.value[id];
+		};
+        // --- 核心卡片邏輯 ---
+		
+		//台新
+		const getRichart = (cat, shop) => {
+			const s = shop.toUpperCase();
+			let base = { bank: '台新銀行', name: 'Richart', pointType: '台新Point', storeId: 'richart' };
+			
+			// 定義各方案包含的分類大標
+			const groups = {
+				daily: ['超商量販', '通勤交通', '加油充電', '藥妝藥局'],
+				eat: ['全臺餐飲', '外送平台', '購票娛樂', '指定KTV', '指定飯店'],
+				big: ['指定百貨', '指定Outlet', '居家裝修', '時尚品味'],
+				digital: ['網購平台', '遊戲影音', 'AI服務', '線上課程'],
+				travel: ['海外消費', '航空公司', '訂房平台', '旅行社']
+			};
+
+			// 輔助工具：動態生成該方案的詳情清單
+			const generateScope = (categoryList) => {
+				return categoryList.map(c => {
+					let shops = getShopsByCategory(c);
+					// 針對超商類別加入你的特殊註解
+					if (c === '超商量販') {
+						shops = shops.replace('7-11｜全家', '7-11及全家(兩大超商限台新Pay)');
+					}
+					return { title: c, shops: shops };
+				});
+			};
+
+			// 1. 指定支付判斷
+			if (s.includes('台新PAY')) return { ...base, rate: 3.8, plan: '【Pay著刷】', note: '限 台新Pay 支付', planDesc: '綁定台新 Pay 支付享 3.8% 高回饋。', dynamicScope: [{title:'指定支付', shops:'台新 Pay'}], limit: '無上限' };
+			if (s.includes('LINE PAY')) return { ...base, rate: 2.3, plan: '【Pay著刷】', note: '限 LINE Pay 支付', planDesc: '綁定 LINE Pay 支付享 2.3% 回饋。', dynamicScope: [{title:'指定支付', shops:'LINE Pay'}], limit: '無上限' };
+			
+			// 2. 五大權益方案動態切換
+			if (groups.daily.includes(cat)) return { ...base, rate: 3.3, plan: '【天天刷】', note: '需切換權益', planDesc: '日常生活的全方位通路。', dynamicScope: generateScope(groups.daily), limit: '無上限' };
+			if (groups.eat.includes(cat)) return { ...base, rate: 3.3, plan: '【好饗刷】', note: '需切換權益', planDesc: '美食與娛樂首選。', dynamicScope: generateScope(groups.eat), limit: '無上限' };
+			if (groups.big.includes(cat)) return { ...base, rate: 3.3, plan: '【大筆刷】', note: '需切換權益', planDesc: '大額支出必備。', dynamicScope: generateScope(groups.big), limit: '無上限' };
+			if (groups.digital.includes(cat)) return { ...base, rate: 3.3, plan: '【數趣刷】', note: '需切換權益', planDesc: '數位訂閱與網購。', dynamicScope: generateScope(groups.digital), limit: '無上限' };
+			if (groups.travel.includes(cat)) return { ...base, rate: 3.3, plan: '【玩旅刷】', note: '需切換權益', planDesc: '旅遊、機票與海外。', dynamicScope: generateScope(groups.travel), limit: '無上限' };
+
+			// 3. 基本回饋
+			return { ...base, rate: 0.3, plan: '一般消費', note: '基本回饋', planDesc: '未分類之一般通路。', dynamicScope: [{title:'一般通路', shops:'非指定方案消費'}], limit: '無上限' };
+		};
+		
+		//中信UNI
+		const getCTBC_UNI = (cat, shop, count, spent = 0) => {
+			const s = shop.toUpperCase();
+			const currentSpent = Number(spent) || 0;
+			const missionRate = count >= 2 ? (count - 1) : 0;
+			
+			let base = { bank: '中國信託', name: 'Uni Sense 卡', pointType: 'OpenPoint', storeId: 'ctbc_uni' };
+
+			const processDetails = (details) => {
+				return details.map(item => {
+					// 上限取整數 (Math.floor)
+					const rawLimit = (item.pointLimit && item.rate > 0) ? (item.pointLimit / (item.rate / 100)) : Infinity;
+					const calculatedLimit = rawLimit === Infinity ? Infinity : Math.floor(rawLimit);
+
+					const isFull = calculatedLimit !== Infinity && currentSpent >= calculatedLimit;
+					
+					return {
+						...item,
+						limitAmt: calculatedLimit,
+						activeRate: isFull ? 0 : item.rate,
+						remaining: calculatedLimit === Infinity ? Infinity : Math.max(0, calculatedLimit - currentSpent),
+						progress: calculatedLimit === Infinity ? 0 : Math.min(100, (currentSpent / calculatedLimit) * 100),
+						isFull: isFull
+					};
+				});
+			};
+
+			const uniGroups = {
+				'統一集團': ['7-11', '康是美', '夢時代', '統一時代百貨', 'DREAM PLAZA', 'UNIKCY',
+							'玲廊滿藝', 'BEING sport', 'BEING spa', 'BEING fit', '星巴克', '21世紀', 
+							'Mister Donut', 'COLD STONE酷聖石冰淇淋', 'Semeur聖娜', '家樂福', 
+							'Mia C‘bon', 'Yahoo購物', '博客來', '聖德科斯', '統一生機', '速邁樂', 
+							'foodomo', '鮮拾網', 'DUSKIN', '黑貓宅急便', 'ibon售票系統', '統一渡假村', '台北W飯店', 
+							'台北時代寓所', '統一友友旅行社'
+				] 
+			};
+			const isUni = Object.values(uniGroups).flat().some(k => s.includes(k.toUpperCase()));
+			// 取得所有商店並轉成字串
+			const allUniShopsStr = uniGroups['統一集團'].join('、');
+			
+			let rawDetails = [];
+			let scopeShops = ''; // 用來存放顯示用的商店字串
+
+			if (cat === '海外消費' || s.includes('海外')) {
+				rawDetails = [
+					{ name: '國外一般', rate: 2, pointLimit: null },
+					{ name: '國外實體商店', rate: 1, pointLimit: null },
+					{ name: '國外實體加碼', rate: 8, pointLimit: 500 }
+				];
+				scopeShops = '全球國外實體商店';
+			} else if (isUni) {
+				rawDetails = [
+					{ name: '國內一般', rate: 1, pointLimit: null },
+					{ name: '統一企業集團', rate: 2, pointLimit: 500 },
+					{ name: '採點任務', rate: missionRate, pointLimit: 500 },
+					{ name: 'icash Pay', rate: 4, pointLimit: 150 }
+				];
+				scopeShops = allUniShopsStr;
+			} else {
+				rawDetails = [
+					{ name: '一般消費', rate: 1, pointLimit: null },
+					{ name: 'icash Pay', rate: 4, pointLimit: 150 }
+				];
+				scopeShops = '國內一般消費通路';
+			}
+
+			const finalDetails = processDetails(rawDetails);
+			const effectiveTotalRate = finalDetails.reduce((sum, item) => sum + item.activeRate, 0);
+
+			const remainingCaps = finalDetails.filter(d => d.limitAmt !== Infinity && !d.isFull);
+			const minRemaining = remainingCaps.length > 0 ? Math.min(...remainingCaps.map(c => c.remaining)) : Infinity;
+
+			return { 
+				...base, 
+				rate: effectiveTotalRate,
+				rateDetails: finalDetails,
+				canBrush: minRemaining === Infinity ? Infinity : Math.floor(minRemaining),
+				plan: s.includes('海外') ? '國外實體 11%' : (isUni ? '統一集團通路' : '一般通路'),
+				note: `各活動上限獨立計算`,
+				// --- 補回關鍵的 dynamicScope 欄位 ---
+				dynamicScope: [
+					{ title: '適用範圍', shops: scopeShops }
+				]
+			};
+		};
+				
+		//聯邦
+        const getFed = (cat, shop, spent = 0) => {
+			const s = shop.toUpperCase();
+			const currentSpent = Number(spent) || 0;
+			let base = { bank: '聯邦銀行', name: 'LINE Bank 卡', pointType: '現金', storeId: 'fed_lb' };
+
+			// 排除超商邏輯
+			if (s.includes('7-11') || s.includes('全家')) {
+				return { 
+					...base, 
+					rate: 0, 
+					plan: '無回饋', 
+					note: '排除超商', 
+					rateDetails: [],
+					dynamicScope: [{ title: '排除通路', shops: '7-11、全家' }] 
+				};
+			}
+
+			const processDetails = (details) => {
+				return details.map(item => {
+					const rawLimit = (item.pointLimit && item.rate > 0) ? (item.pointLimit / (item.rate / 100)) : Infinity;
+					const calculatedLimit = rawLimit === Infinity ? Infinity : Math.floor(rawLimit);
+					
+					const isFull = calculatedLimit !== Infinity && currentSpent >= calculatedLimit;
+					return {
+						...item,
+						limitAmt: calculatedLimit,
+						activeRate: isFull ? 0 : item.rate,
+						remaining: calculatedLimit === Infinity ? Infinity : Math.max(0, calculatedLimit - currentSpent),
+						progress: calculatedLimit === Infinity ? 0 : Math.min(100, (currentSpent / calculatedLimit) * 100),
+						isFull: isFull
+					};
+				});
+			};
+
+			const highRateShops = ['NETFLIX','MOMO','PCHOME','蝦皮','酷澎'];
+			const isHighRate = highRateShops.some(k => s.includes(k));
+			
+			let rawDetails = isHighRate 
+				? [
+					//{ name: '國內一般', rate: 1, pointLimit: null },
+					{ name: '網購加碼', rate: 3, pointLimit: 300 } // $300 / 2% = 15,000 元
+				  ]
+				: [{ name: '國內一般', rate: 1, pointLimit: null }];
+
+			const finalDetails = processDetails(rawDetails);
+			const effectiveTotalRate = finalDetails.reduce((sum, item) => sum + item.activeRate, 0);
+			const remainingCaps = finalDetails.filter(d => d.limitAmt !== Infinity && !d.isFull);
+			const minRemaining = remainingCaps.length > 0 ? Math.min(...remainingCaps.map(c => c.remaining)) : Infinity;
+
+			return { 
+				...base, 
+				rate: effectiveTotalRate, 
+				rateDetails: finalDetails,
+				canBrush: minRemaining === Infinity ? Infinity : Math.floor(minRemaining),
+				plan: isHighRate ? '指定網購加碼' : '一般消費',
+				note: `各活動上限獨立計算`,
+				// 補回 SHOP 顯示
+				dynamicScope: [
+					{ title: '適用範圍', shops: isHighRate ? highRateShops.join('、') : '國內一般消費通路' }
+				]
+			};
+		};
+		
+		//國泰
+        const getCube = (cat, shop, spent = 0) => {
+			const s = shop.toUpperCase();
+			const currentSpent = Number(spent) || 0;
+			let base = { bank: '國泰世華', name: '青年簽帳卡', pointType: '現金', storeId: 'cathay_youth' };
+
+			// 排除超商
+			if (s.includes('7-11') || s.includes('全家')) {
+				return { 
+					...base, 
+					rate: 0, 
+					plan: '無回饋', 
+					note: '排除超商', 
+					rateDetails: [],
+					dynamicScope: [{ title: '排除通路', shops: '7-11、全家' }]
+				};
+			}
+
+			const processDetails = (details) => {
+				return details.map(item => {
+					// 計算上限並取整數
+					const rawLimit = (item.pointLimit && item.rate > 0) ? (item.pointLimit / (item.rate / 100)) : Infinity;
+					const calculatedLimit = rawLimit === Infinity ? Infinity : Math.floor(rawLimit);
+					
+					const isFull = calculatedLimit !== Infinity && currentSpent >= calculatedLimit;
+					return {
+						...item,
+						limitAmt: calculatedLimit,
+						activeRate: isFull ? 0 : item.rate,
+						remaining: calculatedLimit === Infinity ? Infinity : Math.max(0, calculatedLimit - currentSpent),
+						progress: calculatedLimit === Infinity ? 0 : Math.min(100, (currentSpent / calculatedLimit) * 100),
+						isFull: isFull
+					};
+				});
+			};
+
+			let rawDetails = [];
+			let scopeShops = '';
+
+			if (s.includes('海外') || s.includes('台鐵') || s.includes('高鐵')) {
+				rawDetails = [
+					//{ name: '基本回饋', rate: 0.3, pointLimit: null },
+					{ name: '指定權益加碼', rate: 3, pointLimit: 200 } 
+				];
+				scopeShops = '海外消費、台鐵、高鐵';
+			} else if (s.includes('LINE PAY')) {
+				rawDetails = [
+					//{ name: '基本回饋', rate: 0.3, pointLimit: null },
+					{ name: 'LINE PAY支付加碼', rate: 2, pointLimit: null } 
+				];
+				scopeShops = 'LINE Pay 綁定支付';
+			} else {
+				rawDetails = [{ name: '一般消費', rate: 0.3, pointLimit: null }];
+				scopeShops = '國內一般消費通路';
+			}
+
+			const finalDetails = processDetails(rawDetails);
+			const effectiveTotalRate = finalDetails.reduce((sum, item) => sum + item.activeRate, 0);
+			const remainingCaps = finalDetails.filter(d => d.limitAmt !== Infinity && !d.isFull);
+			const minRemaining = remainingCaps.length > 0 ? Math.min(...remainingCaps.map(c => c.remaining)) : Infinity;
+
+			return { 
+				...base, 
+				rate: effectiveTotalRate, 
+				rateDetails: finalDetails,
+				canBrush: minRemaining === Infinity ? Infinity : Math.floor(minRemaining),
+				plan: s.includes('LINE PAY') ? '支付加碼' : (rawDetails.length > 1 ? '指定權益加碼' : '一般消費'),
+				note: `各活動上限獨立計算`,
+				// 補回 SHOP 顯示
+				dynamicScope: [
+					{ title: '適用範圍', shops: scopeShops }
+				]
+			};
+		};
+		
+		//中信LINE PAY
+        const getLINEPay = (cat, shop) => {
+            const s = shop.toUpperCase();
+            let base = { bank: '中國信託', name: 'LINE Pay 卡', pointType: 'LINE Points', storeId: 'ctbc_lp' };
+            if (s.includes('7-11') || s.includes('全家')) return { ...base, rate: 0, plan: '無回饋', note: '排除超商', planDesc: '超商小額支付無回饋。', dynamicScope: [{title:'排除', shops:'7-11、全家'}], limit: '無回饋' };
+            if (s.includes('海外')) return { ...base, rate: 2.8, plan: '海外消費', note: '無上限', planDesc: '海外消費回饋。', dynamicScope: [{title:'海外', shops:'海外消費'}], limit: '無上限' };
+            return { ...base, rate: 1, plan: '一般消費', note: '保底 1%', planDesc: '保底現金回饋。', dynamicScope: [{title:'一般', shops:'一般消費'}], limit: '無上限' };
+        };
+
+        // --- 同步與互動功能 ---
+        const showToast = (msg, type = 'success') => { toast.value = { show: true, msg, type }; setTimeout(() => toast.value.show = false, 2500); };
+
+        const syncFromCloud = async () => {
+            if (!config.value.gasUrl || !config.value.sheetId) return;
+            isSyncing.value = true;
+            try {
+                const res = await fetch(`${config.value.gasUrl}?sId=${config.value.sheetId}&t=${Date.now()}`);
+                const data = await res.json();
+                if (data && !data.error) {
+                    storageData.value = data;
+                    localStorage.setItem('cardMaster_v1.3', JSON.stringify(data));
+                    showToast("同步成功");
+                }
+            } catch (e) { showToast("連線失敗", "error"); } finally { isSyncing.value = false; }
+        };
+
+        const confirmUpdate = async () => {
+            if (!config.value.gasUrl || isSyncing.value) return;
+            const sid = updateCard.value.storeId;
+            const addValue = Number(tempAmount.value) || 0;
+            isSyncing.value = true;
+            try {
+                if (!storageData.value[sid]) storageData.value[sid] = { currentSpend: 0 };
+                storageData.value[sid].currentSpend += addValue;
+                
+                await fetch(config.value.gasUrl, {
+                    method: 'POST', mode: 'no-cors',
+                    body: JSON.stringify({ ...storageData.value, _sheetId: config.value.sheetId })
+                });
+                
+                localStorage.setItem('cardMaster_v1.3', JSON.stringify(storageData.value));
+                showToast(`已累加 $${addValue}`);
+                updateCard.value = null;
+            } catch (e) { showToast("更新失敗", "error"); } finally { isSyncing.value = false; }
+        };
+
+        const resetCard = async () => {
+            if (!config.value.gasUrl || isSyncing.value || !confirm('確定清空此卡本月累計？')) return;
+            const sid = updateCard.value.storeId;
+            isSyncing.value = true;
+            try {
+                if (storageData.value[sid]) storageData.value[sid].currentSpend = 0;
+                await fetch(config.value.gasUrl, {
+                    method: 'POST', mode: 'no-cors',
+                    body: JSON.stringify({ ...storageData.value, _sheetId: config.value.sheetId })
+                });
+                localStorage.setItem('cardMaster_v1.3', JSON.stringify(storageData.value));
+                showToast("數據已歸零");
+                updateCard.value = null;
+            } catch (e) { showToast("歸零失敗", "error"); } finally { isSyncing.value = false; }
+        };
+
+        const saveSettings = () => {
+            localStorage.setItem('cm_gasUrl', config.value.gasUrl);
+            localStorage.setItem('cm_sheetId', config.value.sheetId);
+            showSettings.value = false;
+            syncFromCloud();
+        };
+
+        // --- 計算屬性 ---
+        const sortedResults = computed(() => {
+		const sk = skInput.value.trim().toUpperCase();
+		const matchedShop = shopDatabase.find(d => sk !== '' && d.name.toUpperCase().includes(sk));
+		const cat = matchedShop ? matchedShop.category : '一般';
+
+		// 建立一個安全抓取金額的輔助變數
+		const getSafeSpend = (id) => {
+			return (storageData.value && storageData.value[id]) ? Number(storageData.value[id].currentSpend) : 0;
+		};
+
+		const list = [
+			{ 
+				id: 1, 
+				...getRichart(cat, sk), 
+				icon: 'fas fa-gem', iconColor: 'bg-rose-500', rounding: 'floor' 
+			},
+			{ 
+				id: 2, 
+				...getCTBC_UNI(cat, sk, uniCount.value, getSafeSpend('ctbc_uni')), 
+				icon: 'fas fa-shopping-cart', iconColor: 'bg-orange-500', rounding: 'round' 
+			},
+			{ 
+				id: 3, 
+				...getCube(cat, sk, getSafeSpend('cathay_youth')), 
+				icon: 'fas fa-id-card', iconColor: 'bg-emerald-600', rounding: 'round' 
+			},
+			{ 
+				id: 4, 
+				...getFed(cat, sk, getSafeSpend('fed_lb')), 
+				icon: 'fas fa-comment-dollar', iconColor: 'bg-sky-500', rounding: 'round' 
+			},
+			{ 
+				id: 5, 
+				...getLINEPay(cat, sk, getSafeSpend('ctbc_lp')), 
+				icon: 'fab fa-line', iconColor: 'bg-green-500', rounding: 'round' 
+			}
+		];
+		return list.sort((a, b) => b.rate - a.rate);
+	});
+
+        const suggestions = computed(() => {
+            if (!skInput.value) return [];
+            const input = skInput.value.toUpperCase();
+            return shopDatabase.filter(d => d.name.toUpperCase().includes(input)).slice(0, 6);
+        });
+
+        onMounted(() => { if(config.value.gasUrl) syncFromCloud(); });
+
+        return {
+            config, storageData, skInput, amount, uniCount, isSyncing, showSettings, showSuggestions, toast, detailCard, updateCard, tempAmount,
+            calculateReward: (amt, rate, rounding) => {
+                const val = amt * (rate / 100);
+                return rounding === 'floor' ? Math.floor(val) : Math.round(val);
+            },
+            getCardStorage: (id) => storageData.value[id] || { currentSpend: 0 },
+            getProgress: (res) => {
+                if (!res.limitAmt) return 0;
+                const spend = storageData.value[res.storeId]?.currentSpend || 0;
+                return Math.min(Math.round((spend / res.limitAmt) * 100), 100);
+            },
+            syncFromCloud, openDetails: (c) => detailCard.value = c,
+            openUpdate: (c) => { updateCard.value = c; tempAmount.value = amount.value; },
+            confirmUpdate, resetCard, saveSettings, selectsk: (s) => { skInput.value = s.name; showSuggestions.value = false; },
+            suggestions, sortedResults
+        };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
