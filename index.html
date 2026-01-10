@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CardMaster 2026 旗艦版</title>
+	<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💳</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -25,7 +26,7 @@
         <div class="flex justify-between items-center">
             <div>
                 <h1 class="text-2xl font-black text-amber-400 tracking-tight">CardMaster</h1>
-                <p class="text-[10px] opacity-50 font-bold tracking-widest uppercase">2026 完整權益同步版</p>
+                <p class="text-[10px] opacity-50 font-bold tracking-widest uppercase">2026 完整權益同步版 v2.1</p>
             </div>
             <div class="flex gap-2">
                 <div @click="showSettings = true" class="cursor-pointer bg-white/10 p-2 rounded-full border border-white/20 text-amber-200"><i class="fas fa-cog"></i></div>
@@ -359,11 +360,12 @@ createApp({
         // --- 核心卡片邏輯 ---
 		
 		//台新
-		const getRichart = (cat, shop) => {
+		const getRichart = (cat, shop, spent = 0) => {
 			const s = shop.toUpperCase();
+			const currentSpent = Number(spent) || 0;
 			let base = { bank: '台新銀行', name: 'Richart', pointType: '台新Point', storeId: 'richart' };
 			
-			// 定義各方案包含的分類大標
+			// 方案分類
 			const groups = {
 				daily: ['超商量販', '通勤交通', '加油充電', '藥妝藥局'],
 				eat: ['全臺餐飲', '外送平台', '購票娛樂', '指定KTV', '指定飯店'],
@@ -372,31 +374,83 @@ createApp({
 				travel: ['海外消費', '航空公司', '訂房平台', '旅行社']
 			};
 
-			// 輔助工具：動態生成該方案的詳情清單
+			// 上限計算工具
+			const processDetails = (details) => {
+				return details.map(item => {
+					const rawLimit = (item.pointLimit && item.rate > 0) ? (item.pointLimit / (item.rate / 100)) : Infinity;
+					const calculatedLimit = rawLimit === Infinity ? Infinity : Math.floor(rawLimit);
+					const isFull = calculatedLimit !== Infinity && currentSpent >= calculatedLimit;
+					return {
+						...item,
+						limitAmt: calculatedLimit,
+						activeRate: isFull ? 0 : item.rate,
+						remaining: calculatedLimit === Infinity ? Infinity : Math.max(0, calculatedLimit - currentSpent),
+						progress: calculatedLimit === Infinity ? 0 : Math.min(100, (currentSpent / calculatedLimit) * 100),
+						isFull: isFull
+					};
+				});
+			};
+
 			const generateScope = (categoryList) => {
 				return categoryList.map(c => {
-					let shops = getShopsByCategory(c);
-					// 針對超商類別加入你的特殊註解
-					if (c === '超商量販') {
-						shops = shops.replace('7-11｜全家', '7-11及全家(兩大超商限台新Pay)');
-					}
+					let shops = typeof getShopsByCategory === 'function' ? getShopsByCategory(c) : c;
+					if (c === '超商量販') shops = '7-11及全家(限台新Pay支付)';
 					return { title: c, shops: shops };
 				});
 			};
 
-			// 1. 指定支付判斷
-			if (s.includes('台新PAY')) return { ...base, rate: 3.8, plan: '【Pay著刷】', note: '限 台新Pay 支付', planDesc: '綁定台新 Pay 支付享 3.8% 高回饋。', dynamicScope: [{title:'指定支付', shops:'台新 Pay'}], limit: '無上限' };
-			if (s.includes('LINE PAY')) return { ...base, rate: 2.3, plan: '【Pay著刷】', note: '限 LINE Pay 支付', planDesc: '綁定 LINE Pay 支付享 2.3% 回饋。', dynamicScope: [{title:'指定支付', shops:'LINE Pay'}], limit: '無上限' };
-			
-			// 2. 五大權益方案動態切換
-			if (groups.daily.includes(cat)) return { ...base, rate: 3.3, plan: '【天天刷】', note: '需切換權益', planDesc: '日常生活的全方位通路。', dynamicScope: generateScope(groups.daily), limit: '無上限' };
-			if (groups.eat.includes(cat)) return { ...base, rate: 3.3, plan: '【好饗刷】', note: '需切換權益', planDesc: '美食與娛樂首選。', dynamicScope: generateScope(groups.eat), limit: '無上限' };
-			if (groups.big.includes(cat)) return { ...base, rate: 3.3, plan: '【大筆刷】', note: '需切換權益', planDesc: '大額支出必備。', dynamicScope: generateScope(groups.big), limit: '無上限' };
-			if (groups.digital.includes(cat)) return { ...base, rate: 3.3, plan: '【數趣刷】', note: '需切換權益', planDesc: '數位訂閱與網購。', dynamicScope: generateScope(groups.digital), limit: '無上限' };
-			if (groups.travel.includes(cat)) return { ...base, rate: 3.3, plan: '【玩旅刷】', note: '需切換權益', planDesc: '旅遊、機票與海外。', dynamicScope: generateScope(groups.travel), limit: '無上限' };
+			let rawDetails = [];
+			let planName = '';
+			let scopeData = [];
 
-			// 3. 基本回饋
-			return { ...base, rate: 0.3, plan: '一般消費', note: '基本回饋', planDesc: '未分類之一般通路。', dynamicScope: [{title:'一般通路', shops:'非指定方案消費'}], limit: '無上限' };
+			// 1. 指定支付判斷 (以 3.8% 為例：0.3% 基本 + 3.5% 加碼)
+			if (s.includes('台新PAY')) {
+				rawDetails = [
+					{ name: '基本回饋', rate: 0.3, pointLimit: null },
+					{ name: '台新Pay加碼', rate: 3.5, pointLimit: null } // 1000 / 3.5% = 28,571
+				];
+				planName = '【Pay著刷】';
+				scopeData = [{title:'指定支付', shops:'台新 Pay'}];
+			} else if (s.includes('LINE PAY')) {
+				rawDetails = [
+					{ name: '基本回饋', rate: 0.3, pointLimit: null },
+					{ name: 'LINE Pay加碼', rate: 2.0, pointLimit: null }
+				];
+				planName = '【Pay著刷】';
+				scopeData = [{title:'指定支付', shops:'LINE Pay'}];
+			} 
+			// 2. 五大權益判斷
+			else {
+				const matchedGroup = Object.keys(groups).find(key => groups[key].includes(cat));
+				if (matchedGroup) {
+					rawDetails = [
+						{ name: '基本回饋', rate: 0.3, pointLimit: null },
+						{ name: '方案加碼', rate: 3.0, pointLimit: null } // 1000 / 3% = 33,333
+					];
+					const planMap = { daily: '天天刷', eat: '好饗刷', big: '大筆刷', digital: '數趣刷', travel: '玩旅刷' };
+					planName = `【${planMap[matchedGroup]}】`;
+					scopeData = generateScope(groups[matchedGroup]);
+				} else {
+					rawDetails = [{ name: '基本回饋', rate: 0.3, pointLimit: null }];
+					planName = '一般消費';
+					scopeData = [{title:'一般通路', shops:'非指定方案消費'}];
+				}
+			}
+
+			const finalDetails = processDetails(rawDetails);
+			const effectiveTotalRate = finalDetails.reduce((sum, item) => sum + item.activeRate, 0);
+			const remainingCaps = finalDetails.filter(d => d.limitAmt !== Infinity && !d.isFull);
+			const minRemaining = remainingCaps.length > 0 ? Math.min(...remainingCaps.map(c => c.remaining)) : Infinity;
+
+			return { 
+				...base, 
+				rate: effectiveTotalRate, 
+				rateDetails: finalDetails,
+				canBrush: minRemaining === Infinity ? Infinity : Math.floor(minRemaining),
+				plan: planName,
+				note: `各活動上限獨立計算`,
+				dynamicScope: scopeData
+			};
 		};
 		
 		//中信UNI
@@ -405,7 +459,7 @@ createApp({
 			const currentSpent = Number(spent) || 0;
 			const missionRate = count >= 2 ? (count - 1) : 0;
 			
-			let base = { bank: '中國信託', name: 'Uni Sense 卡', pointType: 'OpenPoint', storeId: 'ctbc_uni' };
+			let base = { bank: '中國信託', name: 'UniOpen 卡', pointType: 'OpenPoint', storeId: 'ctbc_uni' };
 
 			const processDetails = (details) => {
 				return details.map(item => {
@@ -449,7 +503,7 @@ createApp({
 					{ name: '國外實體加碼', rate: 8, pointLimit: 500 }
 				];
 				scopeShops = '全球國外實體商店';
-			} else if (isUni) {
+			} else  if (isUni) {
 				rawDetails = [
 					{ name: '國內一般', rate: 1, pointLimit: null },
 					{ name: '統一企業集團', rate: 2, pointLimit: 500 },
@@ -457,10 +511,16 @@ createApp({
 					{ name: 'icash Pay', rate: 4, pointLimit: 150 }
 				];
 				scopeShops = allUniShopsStr;
-			} else {
+			} else if (s.includes('ICASH PAY')) {
 				rawDetails = [
 					{ name: '一般消費', rate: 1, pointLimit: null },
 					{ name: 'icash Pay', rate: 4, pointLimit: 150 }
+				];
+				scopeShops = 'icash Pay一般消費通路';
+			} else {
+				rawDetails = [
+					{ name: '一般消費', rate: 1, pointLimit: null }
+					//{ name: 'icash Pay', rate: 4, pointLimit: 150 }
 				];
 				scopeShops = '國內一般消費通路';
 			}
@@ -625,13 +685,69 @@ createApp({
 		};
 		
 		//中信LINE PAY
-        const getLINEPay = (cat, shop) => {
-            const s = shop.toUpperCase();
-            let base = { bank: '中國信託', name: 'LINE Pay 卡', pointType: 'LINE Points', storeId: 'ctbc_lp' };
-            if (s.includes('7-11') || s.includes('全家')) return { ...base, rate: 0, plan: '無回饋', note: '排除超商', planDesc: '超商小額支付無回饋。', dynamicScope: [{title:'排除', shops:'7-11、全家'}], limit: '無回饋' };
-            if (s.includes('海外')) return { ...base, rate: 2.8, plan: '海外消費', note: '無上限', planDesc: '海外消費回饋。', dynamicScope: [{title:'海外', shops:'海外消費'}], limit: '無上限' };
-            return { ...base, rate: 1, plan: '一般消費', note: '保底 1%', planDesc: '保底現金回饋。', dynamicScope: [{title:'一般', shops:'一般消費'}], limit: '無上限' };
-        };
+        const getLINEPay = (cat, shop, spent = 0) => {
+			const s = shop.toUpperCase();
+			const currentSpent = Number(spent) || 0;
+			let base = { bank: '中國信託', name: 'LINE Pay 卡', pointType: 'LINE Points', storeId: 'ctbc_lp' };
+
+			// 排除超商
+			if (s.includes('7-11') || s.includes('全家')) {
+				return { 
+					...base, 
+					rate: 0, 
+					plan: '無回饋', 
+					note: '排除超商', 
+					rateDetails: [],
+					dynamicScope: [{ title: '排除通路', shops: '7-11、全家' }]
+				};
+			}
+
+			const processDetails = (details) => {
+				return details.map(item => {
+					// 計算上限並取整數
+					const rawLimit = (item.pointLimit && item.rate > 0) ? (item.pointLimit / (item.rate / 100)) : Infinity;
+					const calculatedLimit = rawLimit === Infinity ? Infinity : Math.floor(rawLimit);
+					
+					const isFull = calculatedLimit !== Infinity && currentSpent >= calculatedLimit;
+					return {
+						...item,
+						limitAmt: calculatedLimit,
+						activeRate: isFull ? 0 : item.rate,
+						remaining: calculatedLimit === Infinity ? Infinity : Math.max(0, calculatedLimit - currentSpent),
+						progress: calculatedLimit === Infinity ? 0 : Math.min(100, (currentSpent / calculatedLimit) * 100),
+						isFull: isFull
+					};
+				});
+			};
+
+			let rawDetails = [];
+			let scopeShops = '';
+
+			if (s.includes('海外')) {
+				rawDetails = [{ name: '海外加碼', rate: 2.8, pointLimit: null }]; // 海外 2.8% 無上限
+				scopeShops = '全球國外消費';
+			} else {
+				rawDetails = [{ name: '國內一般', rate: 1, pointLimit: null }]; // 國內 1% 無上限
+				scopeShops = '國內一般消費通路';
+			}
+
+			const finalDetails = processDetails(rawDetails);
+			const effectiveTotalRate = finalDetails.reduce((sum, item) => sum + item.activeRate, 0);
+			const remainingCaps = finalDetails.filter(d => d.limitAmt !== Infinity && !d.isFull);
+			const minRemaining = remainingCaps.length > 0 ? Math.min(...remainingCaps.map(c => c.remaining)) : Infinity;
+
+			return { 
+				...base, 
+				rate: effectiveTotalRate, 
+				rateDetails: finalDetails,
+				canBrush: minRemaining === Infinity ? Infinity : Math.floor(minRemaining),
+				plan: s.includes('海外') ? '海外消費' : '一般消費',
+				note: `回饋無上限`,
+				dynamicScope: [
+					{ title: '適用範圍', shops: scopeShops }
+				]
+			};
+		};
 
         // --- 同步與互動功能 ---
         const showToast = (msg, type = 'success') => { toast.value = { show: true, msg, type }; setTimeout(() => toast.value.show = false, 2500); };
@@ -689,9 +805,72 @@ createApp({
         const saveSettings = () => {
             localStorage.setItem('cm_gasUrl', config.value.gasUrl);
             localStorage.setItem('cm_sheetId', config.value.sheetId);
+			localStorage.setItem('last_update_month', currentMonthKey);
             showSettings.value = false;
             syncFromCloud();
         };
+		
+		// 在 setup() 內加入檢查跨月的邏輯
+		const checkAndResetMonthly = async () => {
+			// 1. 基本檢查：如果沒有設定 GAS URL 則不執行
+			if (!config.value.gasUrl) return;
+
+			const now = new Date();
+			const currentMonthKey = `${now.getFullYear()}-${now.getMonth() + 1}`;
+			const lastMonthKey = localStorage.getItem('last_update_month');
+
+			// 2. 比對月份
+			if (lastMonthKey && lastMonthKey !== currentMonthKey) {
+				console.log("偵測到跨月，正在執行全卡片自動規零...");
+				
+				// 建立規零後的資料副本
+				const newData = { ...storageData.value };
+				Object.keys(newData).forEach(sid => {
+					newData[sid] = {
+						...newData[sid],
+						currentSpend: 0,
+						lastUpdate: now.toISOString()
+					};
+				});
+
+				try {
+					// 3. 同步到本地
+					storageData.value = newData;
+					localStorage.setItem('cardMaster_v1.3', JSON.stringify(newData));
+
+					// 4. 同步到雲端 (GAS)
+					await fetch(config.value.gasUrl, {
+						method: 'POST',
+						mode: 'no-cors',
+						body: JSON.stringify({ 
+							...newData, 
+							_sheetId: config.value.sheetId 
+						})
+					});
+
+					// 5. 更新月份紀錄，避免重複執行
+					localStorage.setItem('last_update_month', currentMonthKey);
+					console.log("每月自動規零完成");
+					// 5. 提示完成並自動刷新頁面
+					if (typeof showToast === 'function') {
+						showToast("每月自動規零完成", "success");
+					}
+				} catch (e) {
+					console.log("自動規零同步失敗:", e);
+				}
+			} else if (!lastMonthKey) {
+				// 第一次使用，僅記錄當前月份
+				localStorage.setItem('last_update_month', currentMonthKey);
+			}
+			syncFromCloud();
+		};
+
+		// 在初始化資料載入後執行此檢查
+		// 如果你有一個載入 GAS 資料的函數，請在那之後呼叫它
+		onMounted(() => {
+			// 延遲一點點執行，確保 config 與 storageData 已就緒
+			setTimeout(checkAndResetMonthly, 1000); 
+		});
 
         // --- 計算屬性 ---
         const sortedResults = computed(() => {
@@ -740,7 +919,7 @@ createApp({
             return shopDatabase.filter(d => d.name.toUpperCase().includes(input)).slice(0, 6);
         });
 
-        onMounted(() => { if(config.value.gasUrl) syncFromCloud(); });
+        
 
         return {
             config, storageData, skInput, amount, uniCount, isSyncing, showSettings, showSuggestions, toast, detailCard, updateCard, tempAmount,
