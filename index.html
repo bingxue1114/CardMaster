@@ -27,6 +27,8 @@
             <div>
                 <h1 class="text-2xl font-black text-amber-400 tracking-tight">CardMaster</h1>
                 <p class="text-[10px] opacity-50 font-bold tracking-widest uppercase">2026 完整權益同步版 v2.1</p>
+				<p class="text-[10px] opacity-50 font-bold tracking-widest uppercase">最後更新月份：<span id="update-display">載入中...</span></p>
+				
             </div>
             <div class="flex gap-2">
                 <div @click="showSettings = true" class="cursor-pointer bg-white/10 p-2 rounded-full border border-white/20 text-amber-200"><i class="fas fa-cog"></i></div>
@@ -762,6 +764,18 @@ createApp({
                     storageData.value = data;
                     localStorage.setItem('cardMaster_v1.3', JSON.stringify(data));
                     showToast("同步成功");
+					// 1. 從 localStorage 取得資料
+					const lastUpdate = localStorage.getItem('last_update_month');
+
+					// 2. 取得要顯示資料的 HTML 元素
+					const displayElement = document.getElementById('update-display');
+
+					// 3. 判斷並顯示
+					if (lastUpdate) {
+						displayElement.textContent = lastUpdate;
+					} else {
+						displayElement.textContent = "尚無更新紀錄";
+					}
                 }
             } catch (e) { showToast("連線失敗", "error"); } finally { isSyncing.value = false; }
         };
@@ -919,7 +933,6 @@ createApp({
             return shopDatabase.filter(d => d.name.toUpperCase().includes(input)).slice(0, 6);
         });
 
-        
 
         return {
             config, storageData, skInput, amount, uniCount, isSyncing, showSettings, showSuggestions, toast, detailCard, updateCard, tempAmount,
